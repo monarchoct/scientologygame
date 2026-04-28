@@ -24,6 +24,12 @@ const START_DAMAGE_GRACE_SECONDS : float = 1.0
 const PLAYER_DAMAGE_ENABLED : bool = true
 const COIN_POPUP_TEXTURE_PATH : String = "res://scientology_coin_popup.png"
 const COIN_POPUP_SIZE : Vector2 = Vector2(272.0, 153.0)
+const SHOP_BUTTON_SIZE : Vector2 = Vector2(170.0, 48.0)
+const SETTINGS_PANEL_SIZE : Vector2 = Vector2(500.0, 320.0)
+const SENSITIVITY_SLIDER_SCALE : float = 1000.0
+const DEFAULT_MOUSE_SENSITIVITY : float = 0.006
+const MIN_MOUSE_SENSITIVITY : float = 0.001
+const MAX_MOUSE_SENSITIVITY : float = 0.02
 
 @export var coin_scene: PackedScene = preload("res://coin.tscn")
 @export var coin_spawn_count: int = 3
@@ -55,6 +61,9 @@ var coins_collected : int = 0
 var coin_state_views : Array[TextureRect] = []
 var main_menu_ui : Control
 var settings_menu_ui : Control
+var shop_menu_ui : Control
+var shop_coin_label : Label
+var shop_rows_container : VBoxContainer
 var pause_menu_ui : Control
 var loading_ui : Control
 var loading_fade_rect : ColorRect
@@ -341,7 +350,9 @@ func _create_menu_screens() -> void:
 	_connect_menu_button("Sprite2D/Settings", _on_settings_pressed)
 	_connect_menu_button("Sprite2D/Play", _on_play_pressed)
 	_connect_menu_button("Sprite2D/Credits", _on_credits_pressed)
+	_create_main_menu_shop_button()
 	_create_settings_menu_ui()
+	_create_shop_menu_ui()
 
 	var loading_screen_scene: PackedScene = load("res://loading_screen.tscn") as PackedScene
 	loading_ui = loading_screen_scene.instantiate() as Control
@@ -417,10 +428,10 @@ func _create_settings_menu_ui() -> void:
 	var panel: Panel = Panel.new()
 	panel.name = "Panel"
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.offset_left = -230.0
-	panel.offset_top = -120.0
-	panel.offset_right = 230.0
-	panel.offset_bottom = 120.0
+	panel.offset_left = -SETTINGS_PANEL_SIZE.x * 0.5
+	panel.offset_top = -SETTINGS_PANEL_SIZE.y * 0.5
+	panel.offset_right = SETTINGS_PANEL_SIZE.x * 0.5
+	panel.offset_bottom = SETTINGS_PANEL_SIZE.y * 0.5
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	settings_menu_ui.add_child(panel)
 
@@ -431,7 +442,7 @@ func _create_settings_menu_ui() -> void:
 	title_label.add_theme_font_size_override("font_size", 34)
 	title_label.add_theme_color_override("font_color", Color(1, 1, 1))
 	title_label.position = Vector2(0.0, 18.0)
-	title_label.size = Vector2(460.0, 45.0)
+	title_label.size = Vector2(SETTINGS_PANEL_SIZE.x, 45.0)
 	panel.add_child(title_label)
 
 	var volume_label: Label = Label.new()
@@ -455,14 +466,110 @@ func _create_settings_menu_ui() -> void:
 	volume_slider.value_changed.connect(_on_settings_volume_changed)
 	panel.add_child(volume_slider)
 
+	var sensitivity_label: Label = Label.new()
+	sensitivity_label.name = "SensitivityLabel"
+	sensitivity_label.text = "SENS"
+	sensitivity_label.add_theme_font_size_override("font_size", 22)
+	sensitivity_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	sensitivity_label.position = Vector2(55.0, 138.0)
+	sensitivity_label.size = Vector2(140.0, 34.0)
+	panel.add_child(sensitivity_label)
+
+	var sensitivity_slider: HSlider = HSlider.new()
+	sensitivity_slider.name = "SensitivitySlider"
+	var profile := _get_player_profile()
+	sensitivity_slider.min_value = MIN_MOUSE_SENSITIVITY * SENSITIVITY_SLIDER_SCALE
+	sensitivity_slider.max_value = MAX_MOUSE_SENSITIVITY * SENSITIVITY_SLIDER_SCALE
+	sensitivity_slider.step = 0.1
+	sensitivity_slider.value = (profile.mouse_sensitivity if profile else DEFAULT_MOUSE_SENSITIVITY) * SENSITIVITY_SLIDER_SCALE
+	sensitivity_slider.position = Vector2(175.0, 142.0)
+	sensitivity_slider.size = Vector2(230.0, 30.0)
+	sensitivity_slider.mouse_filter = Control.MOUSE_FILTER_STOP
+	sensitivity_slider.value_changed.connect(_on_settings_sensitivity_changed)
+	panel.add_child(sensitivity_slider)
+
 	var back_button: Button = Button.new()
 	back_button.name = "Back"
 	back_button.text = "BACK"
-	back_button.position = Vector2(130.0, 160.0)
+	back_button.position = Vector2(150.0, 238.0)
 	back_button.size = Vector2(200.0, 48.0)
 	back_button.focus_mode = Control.FOCUS_NONE
 	back_button.mouse_filter = Control.MOUSE_FILTER_STOP
 	back_button.pressed.connect(_on_settings_back_pressed)
+	panel.add_child(back_button)
+
+func _create_main_menu_shop_button() -> void:
+	var shop_button: Button = Button.new()
+	shop_button.name = "Shop"
+	shop_button.text = "SHOP"
+	shop_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	shop_button.position = Vector2(-SHOP_BUTTON_SIZE.x - 24.0, 24.0)
+	shop_button.size = SHOP_BUTTON_SIZE
+	shop_button.focus_mode = Control.FOCUS_NONE
+	shop_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	shop_button.add_theme_font_size_override("font_size", 20)
+	shop_button.pressed.connect(_on_shop_pressed)
+	main_menu_ui.add_child(shop_button)
+
+func _create_shop_menu_ui() -> void:
+	shop_menu_ui = Control.new()
+	shop_menu_ui.name = "ShopMenuUI"
+	shop_menu_ui.process_mode = Node.PROCESS_MODE_ALWAYS
+	shop_menu_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shop_menu_ui.mouse_filter = Control.MOUSE_FILTER_STOP
+	shop_menu_ui.visible = false
+	ui_root.add_child(shop_menu_ui)
+
+	var dim_background: ColorRect = ColorRect.new()
+	dim_background.name = "DimBackground"
+	dim_background.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim_background.color = Color(0, 0, 0, 0.65)
+	dim_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	shop_menu_ui.add_child(dim_background)
+
+	var panel: Panel = Panel.new()
+	panel.name = "Panel"
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -280.0
+	panel.offset_top = -220.0
+	panel.offset_right = 280.0
+	panel.offset_bottom = 220.0
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	shop_menu_ui.add_child(panel)
+
+	var title_label: Label = Label.new()
+	title_label.text = "SHOP"
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title_label.add_theme_font_size_override("font_size", 34)
+	title_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	title_label.position = Vector2(0.0, 18.0)
+	title_label.size = Vector2(560.0, 45.0)
+	panel.add_child(title_label)
+
+	shop_coin_label = Label.new()
+	shop_coin_label.name = "CoinLabel"
+	shop_coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	shop_coin_label.add_theme_font_size_override("font_size", 22)
+	shop_coin_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.25))
+	shop_coin_label.position = Vector2(0.0, 68.0)
+	shop_coin_label.size = Vector2(560.0, 34.0)
+	panel.add_child(shop_coin_label)
+
+	shop_rows_container = VBoxContainer.new()
+	shop_rows_container.name = "Rows"
+	shop_rows_container.position = Vector2(60.0, 118.0)
+	shop_rows_container.size = Vector2(440.0, 220.0)
+	shop_rows_container.add_theme_constant_override("separation", 12)
+	panel.add_child(shop_rows_container)
+
+	var back_button: Button = Button.new()
+	back_button.name = "Back"
+	back_button.text = "BACK"
+	back_button.position = Vector2(180.0, 360.0)
+	back_button.size = Vector2(200.0, 48.0)
+	back_button.focus_mode = Control.FOCUS_NONE
+	back_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	back_button.pressed.connect(_on_shop_back_pressed)
 	panel.add_child(back_button)
 
 func _get_master_volume_percent() -> float:
@@ -472,6 +579,9 @@ func _get_master_volume_percent() -> float:
 		return 0.0
 	return clampf(db_to_linear(volume_db) * 100.0, 0.0, 100.0)
 
+func _get_player_profile():
+	return get_node_or_null("/root/PlayerProfile")
+
 func _on_settings_volume_changed(value: float) -> void:
 	var master_bus_index: int = AudioServer.get_bus_index("Master")
 	if value <= 0.0:
@@ -479,11 +589,93 @@ func _on_settings_volume_changed(value: float) -> void:
 	else:
 		AudioServer.set_bus_volume_db(master_bus_index, linear_to_db(value / 100.0))
 
+func _on_settings_sensitivity_changed(value: float) -> void:
+	var sensitivity: float = value / SENSITIVITY_SLIDER_SCALE
+	var profile := _get_player_profile()
+	if profile:
+		profile.set_mouse_sensitivity(sensitivity)
+
+	var player := _get_player()
+	if player is FPSController:
+		(player as FPSController).look_sensitivity = sensitivity
+
 func _on_settings_back_pressed() -> void:
 	_play_ui_click_sound()
 	settings_menu_ui.visible = false
 	if main_menu_ui:
 		main_menu_ui.visible = true
+
+func _on_shop_pressed() -> void:
+	_play_ui_click_sound()
+	_hide_coin_popup()
+	if main_menu_ui:
+		main_menu_ui.visible = false
+	if settings_menu_ui:
+		settings_menu_ui.visible = false
+	if shop_menu_ui:
+		shop_menu_ui.visible = true
+	_refresh_shop_menu()
+
+func _on_shop_back_pressed() -> void:
+	_play_ui_click_sound()
+	if shop_menu_ui:
+		shop_menu_ui.visible = false
+	if main_menu_ui:
+		main_menu_ui.visible = true
+	_show_coin_popup()
+
+func _refresh_shop_menu() -> void:
+	var profile := _get_player_profile()
+	if profile == null or shop_rows_container == null:
+		return
+
+	shop_coin_label.text = "COINS: %d" % profile.coins
+	for child in shop_rows_container.get_children():
+		child.queue_free()
+
+	for skin_id in profile.get_knife_skin_ids():
+		var row := HBoxContainer.new()
+		row.custom_minimum_size = Vector2(440.0, 44.0)
+		row.add_theme_constant_override("separation", 12)
+
+		var name_label := Label.new()
+		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		name_label.text = "%s  -  %d" % [profile.get_knife_skin_display_name(skin_id), profile.get_knife_skin_cost(skin_id)]
+		name_label.add_theme_font_size_override("font_size", 18)
+		name_label.add_theme_color_override("font_color", profile.get_equipped_knife_skin_color() if profile.equipped_knife_skin == skin_id else Color(1, 1, 1))
+		row.add_child(name_label)
+
+		var action_button := Button.new()
+		action_button.custom_minimum_size = Vector2(130.0, 40.0)
+		action_button.focus_mode = Control.FOCUS_NONE
+		if profile.equipped_knife_skin == skin_id:
+			action_button.text = "EQUIPPED"
+			action_button.disabled = true
+		elif profile.owns_knife_skin(skin_id):
+			action_button.text = "EQUIP"
+		else:
+			action_button.text = "BUY"
+			action_button.disabled = profile.coins < profile.get_knife_skin_cost(skin_id)
+		action_button.pressed.connect(_on_shop_skin_pressed.bind(skin_id))
+		row.add_child(action_button)
+
+		shop_rows_container.add_child(row)
+
+func _on_shop_skin_pressed(skin_id: String) -> void:
+	var profile := _get_player_profile()
+	if profile == null:
+		return
+	if profile.buy_or_equip_knife_skin(skin_id):
+		_refresh_shop_menu()
+		_apply_current_player_knife_skin()
+
+func _apply_current_player_knife_skin() -> void:
+	var player := _get_player()
+	if player == null:
+		return
+	var weapon_manager := player.find_child("WeaponManager", true, false)
+	if weapon_manager and weapon_manager.has_method("apply_equipped_knife_skin"):
+		weapon_manager.apply_equipped_knife_skin()
 
 func _connect_end_button(button_path: NodePath, callback: Callable) -> void:
 	var button: Button = end_round_ui.get_node_or_null(button_path) as Button
@@ -648,7 +840,10 @@ func _show_main_menu() -> void:
 	loading_ui.visible = false
 	if settings_menu_ui:
 		settings_menu_ui.visible = false
+	if shop_menu_ui:
+		shop_menu_ui.visible = false
 	main_menu_ui.visible = true
+	_refresh_shop_menu()
 	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_show_coin_popup()
 
@@ -825,6 +1020,8 @@ func _on_difficulty_selected(d: DifficultyManager.Difficulty) -> void:
 
 func _on_settings_pressed() -> void:
 	_play_ui_click_sound()
+	if shop_menu_ui:
+		shop_menu_ui.visible = false
 	if settings_menu_ui:
 		settings_menu_ui.visible = true
 	_show_coin_popup()
@@ -1327,6 +1524,10 @@ func _connect_coin(coin: Node) -> void:
 
 func _on_coin_picked_up() -> void:
 	coins_collected = clampi(coins_collected + 1, 0, COIN_STATE_COUNT - 1)
+	var profile := _get_player_profile()
+	if profile:
+		profile.add_coins(1)
+	_refresh_shop_menu()
 	_update_coin_state_ui()
 	if coins_collected >= coin_spawn_count:
 		_set_ending_lights_enabled(true)
@@ -1549,6 +1750,10 @@ func _set_game_over_ui_input_enabled(enabled: bool) -> void:
 
 func _load_player_progress() -> void:
 	player_has_won_once = false
+	var profile := _get_player_profile()
+	if profile:
+		player_has_won_once = profile.won_once
+		return
 	if not FileAccess.file_exists(PLAYER_PROGRESS_SAVE_FILE_PATH):
 		return
 
@@ -1561,6 +1766,11 @@ func _load_player_progress() -> void:
 	player_has_won_once = save_text.find("won_once=true") != -1
 
 func _save_player_progress() -> void:
+	var profile := _get_player_profile()
+	if profile:
+		profile.won_once = player_has_won_once
+		profile.save_profile()
+
 	var file: FileAccess = FileAccess.open(PLAYER_PROGRESS_SAVE_FILE_PATH, FileAccess.ModeFlags.WRITE)
 	if file:
 		if player_has_won_once:

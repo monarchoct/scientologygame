@@ -53,11 +53,48 @@ func update_weapon_model() -> void:
 			current_weapon_world_model.position = current_weapon.world_model_pos
 			current_weapon_world_model.rotation = current_weapon.world_model_rot
 			current_weapon_world_model.scale = current_weapon.world_model_scale
+		apply_equipped_knife_skin()
 		current_weapon.is_equipped = true
 		if player.has_method("update_view_and_world_model_masks"):
 			player.update_view_and_world_model_masks()
 	current_weapon_view_model_muzzle = view_model_container.find_child("Muzzle", true, false) if current_weapon_view_model else null
 	current_weapon_world_model_muzzle = world_model_container.find_child("Muzzle", true, false) if current_weapon_world_model else null
+
+func apply_equipped_knife_skin() -> void:
+	if current_weapon == null or current_weapon.name.to_lower() != "knife":
+		return
+
+	var player_profile := get_node_or_null("/root/PlayerProfile")
+	if player_profile == null or not player_profile.has_method("get_equipped_knife_skin_color"):
+		return
+
+	var skin_color: Color = player_profile.call("get_equipped_knife_skin_color") as Color
+	_tint_weapon_model(current_weapon_view_model, skin_color)
+	_tint_weapon_model(current_weapon_world_model, skin_color)
+
+func _tint_weapon_model(model: Node3D, skin_color: Color) -> void:
+	if model == null:
+		return
+
+	var mesh_instances := model.find_children("*", "MeshInstance3D", true, false)
+	if model is MeshInstance3D:
+		mesh_instances.push_back(model)
+
+	for mesh_instance in mesh_instances:
+		var mesh_node := mesh_instance as MeshInstance3D
+		if mesh_node.mesh == null:
+			continue
+		mesh_node.mesh = mesh_node.mesh.duplicate()
+		for surface_idx in range(mesh_node.mesh.get_surface_count()):
+			var material := mesh_node.mesh.surface_get_material(surface_idx)
+			if material == null:
+				continue
+			var local_material := material.duplicate()
+			if local_material is ShaderMaterial:
+				(local_material as ShaderMaterial).set_shader_parameter("albedo", skin_color)
+			elif local_material is BaseMaterial3D:
+				(local_material as BaseMaterial3D).albedo_color = skin_color
+			mesh_node.mesh.surface_set_material(surface_idx, local_material)
 
 ## Call this function on any node to apply the weapon_clip_and_fov_shader.gdshader to all meshes within it.
 func apply_clip_and_fov_shader_to_view_model(node3d : Node3D, fov_or_negative_for_unchanged = -1.0):

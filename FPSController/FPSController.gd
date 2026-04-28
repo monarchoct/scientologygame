@@ -67,6 +67,9 @@ func get_move_speed() -> float:
 	return sprint_speed if Input.is_action_pressed("sprint") else walk_speed
 
 func _ready():
+	var player_profile := get_node_or_null("/root/PlayerProfile")
+	if player_profile:
+		look_sensitivity = float(player_profile.get("mouse_sensitivity"))
 	update_view_and_world_model_masks()
 	_update_camera()
 
