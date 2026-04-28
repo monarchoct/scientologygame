@@ -5,7 +5,8 @@ var nav_agent: NavigationAgent3D = null
 var is_stunned: bool = false
 var stun_time_left: float = 0.0
 
-const SPEED: float = 15.0
+const BASE_SPEED: float = 15.0
+var SPEED: float = BASE_SPEED
 const ATTACK_RANGE: float = 1.5
 const STUN_DURATION: float = 2.0
 
@@ -15,45 +16,38 @@ const STUN_DURATION: float = 2.0
 
 func _ready() -> void:
 	add_to_group("enemies")
-	# Get player node
+	SPEED = BASE_SPEED * DifficultyManager.get_speed_multiplier()
 	player = get_node(player_path) as Node3D
-	# Assuming NavigationAgent3D is a child node; adjust path if necessary
 	nav_agent = $NavigationAgent3D as NavigationAgent3D
-	# Adjust navigation agent size based on current scale to prevent issues with large scales
 	if nav_agent:
-		var scale_factor: float = global_transform.basis.get_scale().x  # Assuming uniform scale
+		var scale_factor: float = global_transform.basis.get_scale().x
 		nav_agent.radius = 0.5 * scale_factor
 		nav_agent.height = 2.0 * scale_factor
 
 func _physics_process(delta: float) -> void:
-	# Update stun timer
 	if is_stunned:
 		stun_time_left -= delta
 		if stun_time_left <= 0.0:
 			is_stunned = false
 		else:
 			_apply_enemy_spacing()
-			return  # Don't move while stunned
+			return
 
-	# Ensure nav_agent and player are valid
 	if nav_agent and player:
 		if not _player_in_aggro_range():
 			velocity = Vector3.ZERO
 			_apply_enemy_spacing()
 			return
 
-		# Set target position for the navigation agent
 		nav_agent.set_target_position(player.global_transform.origin)
 
 		var current_location: Vector3 = global_transform.origin
 		var next_location: Vector3 = nav_agent.get_next_path_position()
 
-		# Calculate velocity
 		var new_velocity: Vector3 = (next_location - current_location).normalized() * SPEED
 		new_velocity += _get_enemy_spacing_velocity()
 		velocity = velocity.move_toward(new_velocity, 0.25)
 
-		# Move the character
 		move_and_slide()
 
 		_apply_enemy_spacing()
@@ -96,13 +90,11 @@ func hit_finished() -> void:
 	player.hit()
 
 func take_damage(damage_amount: float) -> void:
-	# Stun the enemy when hit by knife
 	is_stunned = true
 	stun_time_left = STUN_DURATION
-	velocity = Vector3.ZERO  # Stop movement immediately
+	velocity = Vector3.ZERO
 
 func take_backstab_damage(damage_amount: float) -> void:
-	# Backstab stuns for longer
 	is_stunned = true
 	stun_time_left = STUN_DURATION * 1.5
 	velocity = Vector3.ZERO

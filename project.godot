@@ -19,6 +19,10 @@ run/main_scene="res://StarterScene.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 boot_splash/show_image=false
 
+[autoload]
+
+DifficultyManager="*res://DifficultyManager.gd"
+
 [display]
 
 window/stretch/mode="viewport"
