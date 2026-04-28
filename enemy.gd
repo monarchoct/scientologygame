@@ -5,7 +5,8 @@ var nav_agent: NavigationAgent3D = null
 var is_stunned: bool = false
 var stun_time_left: float = 0.0
 
-const SPEED: float = 15.0
+const BASE_SPEED: float = 15.0
+var SPEED: float = BASE_SPEED
 const ATTACK_RANGE: float = 1.5
 const STUN_DURATION: float = 2.0
 
@@ -15,6 +16,7 @@ const STUN_DURATION: float = 2.0
 
 func _ready() -> void:
 	add_to_group("enemies")
+	SPEED = BASE_SPEED * DifficultyManager.get_speed_multiplier()
 	# Get player node
 	player = get_node(player_path) as Node3D
 	# Assuming NavigationAgent3D is a child node; adjust path if necessary
