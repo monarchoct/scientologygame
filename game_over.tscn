@@ -1,0 +1,47 @@
+[gd_scene format=3 uid="uid://c5ft8gtoxtqg"]
+
+[ext_resource type="Texture2D" uid="uid://c1esh5e7lg1qa" path="res://textures/Setting up ForaOS (14).png" id="1_y26ei"]
+
+[node name="Game over" type="Control" unique_id=1615262680]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Control" type="Control" parent="." unique_id=1741457054]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_right = -281.0
+offset_bottom = -240.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Main" type="Button" parent="Control" unique_id=1273158657]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 8.1970005
+anchor_bottom = 6.992
+offset_left = 103.0
+offset_top = 217.0
+offset_right = -106.683014
+offset_bottom = -45.679993
+
+[node name="SettingUpForaOs(14)" type="Sprite2D" parent="Control" unique_id=1437514894]
+position = Vector2(159.25128, 134.23813)
+scale = Vector2(0.100651056, 0.13148148)
+texture = ExtResource("1_y26ei")
+offset = Vector2(9.9227295, 51.428528)
+
+[node name="Try" type="Button" parent="Control" unique_id=881585934]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 8.196
+anchor_bottom = 6.9660006
+offset_left = 103.0
+offset_top = 182.0
+offset_right = -106.62399
+offset_bottom = -73.640015

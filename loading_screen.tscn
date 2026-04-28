@@ -1,0 +1,16 @@
+[gd_scene format=3 uid="uid://dihd1mvjbgwc1"]
+
+[ext_resource type="Texture2D" uid="uid://bdg14r11ho6gu" path="res://ui_loading.png" id="1_mggpi"]
+
+[node name="Loading Screen" type="Control" unique_id=1221181526]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1564334189]
+position = Vector2(579.1875, 345)
+scale = Vector2(2.2937012, 1.788086)
+texture = ExtResource("1_mggpi")

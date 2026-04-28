@@ -8,21 +8,30 @@
 
 config_version=5
 
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
 [application]
 
-config/name="SimpleFPSController"
+config/name="scientologygame"
 run/main_scene="res://StarterScene.tscn"
-config/features=PackedStringArray("4.3", "Forward Plus")
+config/features=PackedStringArray("4.6", "Forward Plus")
 boot_splash/show_image=false
 
 [display]
 
+window/stretch/mode="viewport"
 window/volumetric_fog/volume_depth=256
 window/volumetric_fog/volume_size=256
 
 [editor]
 
-movie_writer/movie_file="C:/Users/logan/OneDrive/Documents/Godot Projects/SimpleFPSController/test.avi"
+movie_writer/movie_file="C:/Users/logan/OneDrive/Documents/Godot Projects/scientologygame/test.avi"
+
+[global_group]
+
+coin_spawn_point=""
 
 [input]
 
@@ -117,7 +126,8 @@ reload={
 
 [rendering]
 
-environment/volumetric_fog/volume_size=256
-environment/volumetric_fog/volume_depth=256
+renderer/rendering_method="gl_compatibility"
 anti_aliasing/quality/msaa_2d=3
 anti_aliasing/quality/msaa_3d=3
+environment/volumetric_fog/volume_size=256
+environment/volumetric_fog/volume_depth=256

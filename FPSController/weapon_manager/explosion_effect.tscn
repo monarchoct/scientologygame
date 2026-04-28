@@ -8,7 +8,7 @@
 script/source = "extends Node3D
 
 @export var explosion_force = 15.0
-@export var max_explosion_dist = 3.5
+@export var max_explosion_dist = 4.25
 @export var explosion_damage = 10
 
 # Called when the node enters the scene tree for the first time.
@@ -92,7 +92,7 @@ particles_anim_loop = false
 
 [sub_resource type="QuadMesh" id="QuadMesh_1hkx5"]
 material = SubResource("StandardMaterial3D_tc4k2")
-size = Vector2(4, 4)
+size = Vector2(4.8, 4.8)
 
 [sub_resource type="Curve" id="Curve_bn7ek"]
 _data = [Vector2(0, 1), 0.0, 0.0, 0, 0, Vector2(1, 0), 0.0, 0.0, 0, 0]
@@ -149,10 +149,10 @@ particles_anim_loop = false
 
 [sub_resource type="QuadMesh" id="QuadMesh_jrlsi"]
 material = SubResource("StandardMaterial3D_i65mg")
-size = Vector2(2, 2)
+size = Vector2(2.4, 2.4)
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_1q0ia"]
-radius = 3.5
+radius = 4.25
 
 [sub_resource type="Animation" id="Animation_bloac"]
 length = 0.001
@@ -195,11 +195,12 @@ _data = {
 script = SubResource("GDScript_h1qs4")
 
 [node name="Decal" type="Decal" parent="."]
-size = Vector3(2, 0.6, 2)
+size = Vector3(2.6, 0.7, 2.6)
 texture_albedo = ExtResource("1_n5np6")
 
 [node name="AudioStreamPlayer3D" type="AudioStreamPlayer3D" parent="."]
 stream = ExtResource("2_6b1kj")
+volume_db = -6.0
 
 [node name="GPUParticles3D" type="GPUParticles3D" parent="."]
 emitting = false

@@ -1,4 +1,4 @@
-# SimpleFPSController
+# scientologygame
 
 This is a first person character controller which implements mechanics found in popular games such as Quake and Counter-Strike: Source.
 

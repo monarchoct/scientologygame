@@ -1,2 +1,12 @@
 # Godot 4+ specific ignores
 .godot/
+
+# Local export/build output
+exports/
+fixexport/
+*.pck
+*.wasm
+*.tmp
+RUNNER.*
+SimpleFPSController.*
+scientologygame.*

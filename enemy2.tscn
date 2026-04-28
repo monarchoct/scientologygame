@@ -1,0 +1,32 @@
+[gd_scene format=3 uid="uid://bviggdp3sxhhp"]
+
+[ext_resource type="Script" uid="uid://cfv4tj0mxxrna" path="res://enemy.gd" id="1_jugo2"]
+[ext_resource type="Texture2D" uid="uid://d0pcmee6bdqv4" path="res://cruise.png" id="2_jugo2"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_iifgy"]
+radius = 0.2607422
+height = 0.8709717
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_epg4t"]
+transparency = 2
+alpha_scissor_threshold = 0.1
+albedo_texture = ExtResource("2_jugo2")
+albedo_texture_force_srgb = true
+billboard_mode = 1
+billboard_keep_scale = true
+
+[sub_resource type="QuadMesh" id="QuadMesh_3yqyl"]
+material = SubResource("StandardMaterial3D_epg4t")
+
+[node name="enemy" type="CharacterBody3D" unique_id=197145185]
+script = ExtResource("1_jugo2")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1303119561]
+transform = Transform3D(0.20244056, 0, 0, 0, 0.18383008, 0, 0, 0, 0.16193482, 0, -0.39595777, 0)
+shape = SubResource("CapsuleShape3D_iifgy")
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="." unique_id=1900057005]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1422589530]
+transform = Transform3D(2.195, 0, 0, 0, 2.194985, -0.008121697, 0, 0.008121697, 2.194985, 0, 0.5490393, 0)
+mesh = SubResource("QuadMesh_3yqyl")

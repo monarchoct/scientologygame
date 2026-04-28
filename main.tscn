@@ -1,0 +1,37 @@
+[gd_scene format=3 uid="uid://cto2hi2io7lp8"]
+
+[ext_resource type="Texture2D" uid="uid://bo36jp5kqb3uw" path="res://ui_main.png" id="1_ig7tw"]
+
+[node name="Control" type="Control" unique_id=317295963]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1440514537]
+position = Vector2(579.00006, 535)
+scale = Vector2(1.0925926, 1.0037037)
+texture = ExtResource("1_ig7tw")
+
+[node name="Play" type="Button" parent="Sprite2D" unique_id=388672664]
+offset_left = -117.15262
+offset_top = -70.73801
+offset_right = 123.559235
+offset_bottom = -15.9409485
+flat = true
+
+[node name="Settings" type="Button" parent="Sprite2D" unique_id=697077977]
+offset_left = -116.23735
+offset_top = -154.42804
+offset_right = 124.4745
+offset_bottom = -107.6015
+flat = true
+
+[node name="Credits" type="Button" parent="Sprite2D" unique_id=1238437277]
+offset_left = -123.559395
+offset_top = 26.90036
+offset_right = 117.15246
+offset_bottom = 81.69742
+flat = true

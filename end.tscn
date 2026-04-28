@@ -1,0 +1,46 @@
+[gd_scene format=3 uid="uid://h4xlbe2l4fcw"]
+
+[ext_resource type="Texture2D" uid="uid://4jcysthojigl" path="res://ui_end_round.png" id="1_n735c"]
+[ext_resource type="Texture2D" uid="uid://tk0onio7rxxq" path="res://FPSController/weapon_manager/won.png" id="2_egc6y"]
+
+[node name="Control" type="Control" unique_id=693361863]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1028342521]
+position = Vector2(569, 577)
+scale = Vector2(1.1018518, 1.0851853)
+texture = ExtResource("1_n735c")
+
+[node name="main" type="Button" parent="." unique_id=10159050]
+layout_mode = 0
+offset_left = 360.0
+offset_top = 362.0
+offset_right = 761.0
+offset_bottom = 446.0
+flat = true
+
+[node name="Button" type="Button" parent="." unique_id=339608108]
+layout_mode = 0
+offset_left = 367.0
+offset_top = 253.0
+offset_right = 768.0
+offset_bottom = 337.0
+flat = true
+
+[node name="time" type="Label" parent="." unique_id=102041457]
+layout_mode = 0
+offset_left = 39.0
+offset_top = 153.0
+offset_right = 299.0
+offset_bottom = 266.0
+
+[node name="won" type="Sprite2D" parent="." unique_id=1551698371]
+visible = false
+position = Vector2(594.81, 205.265)
+scale = Vector2(1.48, 1.48)
+texture = ExtResource("2_egc6y")

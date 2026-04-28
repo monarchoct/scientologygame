@@ -4,24 +4,26 @@ extends CharacterBody3D
 @export var look_sensitivity : float = 0.006
 @export var controller_look_sensitivity := 0.05
 
-@export var jump_velocity := 6.0
+@export var jump_velocity := 6
 @export var auto_bhop := true
 
 const HEADBOB_MOVE_AMOUNT = 0.06
 const HEADBOB_FREQUENCY = 2.4
 var headbob_time := 0.0
 
+signal player_hit
+
 # Ground movement settings
-@export var walk_speed := 7.0
-@export var sprint_speed := 8.5
-@export var ground_accel := 11.0
-@export var ground_decel := 7.0
-@export var ground_friction := 3.5
+@export var walk_speed := 10
+@export var sprint_speed := 13
+@export var ground_accel := 20
+@export var ground_decel := 2
+@export var ground_friction := 5
 
 # Air movement settings. Need to tweak these to get the feeling dialed in.
-@export var air_cap := 0.85 # Can surf steeper ramps if this is higher, makes it easier to stick and bhop
-@export var air_accel := 800.0
-@export var air_move_speed := 500.0
+@export var air_cap := 6 # Can surf steeper ramps if this is higher, makes it easier to stick and bhop
+@export var air_accel := 1500
+@export var air_move_speed := 500
 
 @export var swim_up_speed := 10.0
 @export var climb_speed := 7.0
@@ -57,6 +59,7 @@ var _last_frame_was_on_floor = -INF
 
 const VIEW_MODEL_LAYER = 9
 const WORLD_MODEL_LAYER = 2
+
 
 func get_move_speed() -> float:
 	if is_crouched:
@@ -540,3 +543,6 @@ func _physics_process(delta):
 			_snap_down_to_stairs_check()
 	
 	_slide_camera_smooth_back_to_origin(delta)
+
+func hit():
+	emit_signal("player_hit")
