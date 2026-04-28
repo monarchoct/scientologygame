@@ -7,7 +7,7 @@ var current_difficulty: Difficulty = Difficulty.MEDIUM
 # Lives per difficulty (HARDCORE = 0 means insta-kill / no respawn)
 const LIVES: Dictionary = {
 	Difficulty.EASY:     3,
-	Difficulty.MEDIUM:   1,
+	Difficulty.MEDIUM:   2,
 	Difficulty.HARDCORE: 0,
 }
 

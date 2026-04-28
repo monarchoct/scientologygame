@@ -19,6 +19,10 @@ run/main_scene="res://StarterScene.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 boot_splash/show_image=false
 
+[autoload]
+
+DifficultyManager="*res://DifficultyManager.gd"
+
 [display]
 
 window/stretch/mode="viewport"
@@ -131,7 +135,3 @@ anti_aliasing/quality/msaa_2d=3
 anti_aliasing/quality/msaa_3d=3
 environment/volumetric_fog/volume_size=256
 environment/volumetric_fog/volume_depth=256
-
-[autoload]
-DifficultyManager="res://DifficultyManager.gd"
-

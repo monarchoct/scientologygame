@@ -55,6 +55,7 @@ var coins_collected : int = 0
 var coin_state_views : Array[TextureRect] = []
 var main_menu_ui : Control
 var settings_menu_ui : Control
+var pause_menu_ui : Control
 var loading_ui : Control
 var loading_fade_rect : ColorRect
 var end_round_ui : Control
@@ -141,6 +142,10 @@ func _ready() -> void:
 		call_deferred("_start_round_sequence")
 
 func _process(delta : float) -> void:
+	# Pause menu toggle — only during an active round
+	if Input.is_action_just_pressed("ui_cancel") and round_started and is_alive and not has_won:
+		_toggle_pause_menu()
+
 	if not is_alive:
 		return
 
@@ -647,6 +652,81 @@ func _show_main_menu() -> void:
 	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_show_coin_popup()
 
+func _toggle_pause_menu() -> void:
+	if pause_menu_ui == null:
+		_create_pause_menu()
+
+	var is_paused: bool = not get_tree().paused
+	get_tree().paused = is_paused
+	pause_menu_ui.visible = is_paused
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE if is_paused else Input.MOUSE_MODE_CAPTURED)
+
+func _create_pause_menu() -> void:
+	pause_menu_ui = Control.new()
+	pause_menu_ui.name = "PauseMenuUI"
+	pause_menu_ui.process_mode = Node.PROCESS_MODE_ALWAYS
+	pause_menu_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
+	pause_menu_ui.mouse_filter = Control.MOUSE_FILTER_STOP
+	pause_menu_ui.visible = false
+	ui_root.add_child(pause_menu_ui)
+
+	# Dark overlay background
+	var bg := ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0, 0, 0, 0.65)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pause_menu_ui.add_child(bg)
+
+	# "PAUSED" title
+	var title := Label.new()
+	title.text = "PAUSED"
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title.position = Vector2(-150, 180)
+	title.size = Vector2(300, 60)
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", Color(1, 1, 1))
+	pause_menu_ui.add_child(title)
+
+	# Continue button
+	var continue_btn := Button.new()
+	continue_btn.text = "Continue"
+	continue_btn.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	continue_btn.position = Vector2(-120, 270)
+	continue_btn.size = Vector2(240, 55)
+	continue_btn.add_theme_font_size_override("font_size", 20)
+	continue_btn.pressed.connect(_on_pause_continue_pressed)
+	pause_menu_ui.add_child(continue_btn)
+
+	# Main Menu button
+	var menu_btn := Button.new()
+	menu_btn.text = "Main Menu"
+	menu_btn.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	menu_btn.position = Vector2(-120, 340)
+	menu_btn.size = Vector2(240, 55)
+	menu_btn.add_theme_font_size_override("font_size", 20)
+	menu_btn.add_theme_color_override("font_color", Color(1, 0.4, 0.4))
+	menu_btn.pressed.connect(_on_pause_main_menu_pressed)
+	pause_menu_ui.add_child(menu_btn)
+
+func _on_pause_continue_pressed() -> void:
+	_play_ui_click_sound()
+	get_tree().paused = false
+	pause_menu_ui.visible = false
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+func _on_pause_main_menu_pressed() -> void:
+	_play_ui_click_sound()
+	get_tree().paused = false
+	pause_menu_ui.visible = false
+	# Reset round state so a fresh round starts when Play is clicked again
+	round_started = false
+	round_timer_started = false
+	is_alive = true
+	has_won = false
+	time_left = TOTAL_TIME
+	_show_main_menu()
+
 func _consume_skip_main_menu_once() -> bool:
 	if not get_tree().has_meta("skip_main_menu_once"):
 		return false
@@ -701,8 +781,8 @@ func _show_difficulty_overlay() -> void:
 
 	var button_labels := ["EASY", "MEDIUM", "HARDCORE"]
 	var button_colors := [Color(0.2, 0.8, 0.2), Color(0.9, 0.75, 0.1), Color(0.85, 0.1, 0.1)]
-	var difficulties := [DifficultyManager.Difficulty.EASY, DifficultyManager.Difficulty.MEDIUM, DifficultyManager.Difficulty.HARDCORE]
-	var descriptions := ["3 Lives  |  Slow guards", "1 Life  |  Faster guards", "No Lives  |  Guards at full speed"]
+	var difficulties: Array[DifficultyManager.Difficulty] = [DifficultyManager.Difficulty.EASY, DifficultyManager.Difficulty.MEDIUM, DifficultyManager.Difficulty.HARDCORE]
+	var descriptions := ["3 Lives  |  Slow guards", "1 Extra Hit  |  Faster guards", "No Lives  |  Guards at full speed"]
 	var base_y := 230
 
 	for i in range(3):
@@ -715,7 +795,7 @@ func _show_difficulty_overlay() -> void:
 		btn.position = Vector2(-160, base_y + i * 90)
 		btn.add_theme_color_override("font_color", button_colors[i])
 		btn.add_theme_font_size_override("font_size", 22)
-		var d := difficulties[i]
+		var d: DifficultyManager.Difficulty = difficulties[i]
 		btn.pressed.connect(func(): _on_difficulty_selected(d))
 		difficulty_overlay.add_child(btn)
 
