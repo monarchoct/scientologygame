@@ -1,6 +1,8 @@
 class_name WeaponManager
 extends Node3D
 
+const BASE_ALBEDO_TEXTURE_META := &"base_albedo_texture"
+
 @export var allow_shoot : bool = true
 
 @export var current_weapon : WeaponResource :
@@ -26,8 +28,90 @@ var current_weapon_world_model : Node3D
 
 var current_weapon_view_model_muzzle : Node3D
 var current_weapon_world_model_muzzle : Node3D
+var base_equipped_weapon_resources: Array[WeaponResource] = []
 
 @onready var audio_stream_player = $AudioStreamPlayer3D
+
+func _remember_base_loadout() -> void:
+	if not base_equipped_weapon_resources.is_empty():
+		return
+	for weapon in equipped_weapons:
+		if weapon != null:
+			base_equipped_weapon_resources.append(weapon)
+	if current_weapon != null and not base_equipped_weapon_resources.has(current_weapon):
+		base_equipped_weapon_resources.push_front(current_weapon)
+
+func _make_runtime_weapon(weapon: WeaponResource) -> WeaponResource:
+	if weapon == null:
+		return null
+	var runtime_weapon := weapon.duplicate(true) as WeaponResource
+	if runtime_weapon == null:
+		return null
+	runtime_weapon.reset_ammo()
+	runtime_weapon.weapon_manager = self
+	return runtime_weapon
+
+func _make_runtime_loadout() -> void:
+	var starting_weapon := current_weapon
+	var runtime_weapons: Array[WeaponResource] = []
+	for weapon in equipped_weapons:
+		var runtime_weapon := _make_runtime_weapon(weapon)
+		if runtime_weapon != null:
+			runtime_weapons.append(runtime_weapon)
+	equipped_weapons = runtime_weapons
+
+	current_weapon = null
+	for weapon in equipped_weapons:
+		if starting_weapon != null and (weapon.resource_path == starting_weapon.resource_path or weapon.name == starting_weapon.name):
+			current_weapon = weapon
+			return
+	if equipped_weapons.size() > 0:
+		current_weapon = equipped_weapons[0]
+
+func apply_named_loadout(weapon_names: PackedStringArray) -> void:
+	_remember_base_loadout()
+	var selected_weapons: Array[WeaponResource] = []
+	for weapon in base_equipped_weapon_resources:
+		if weapon == null:
+			continue
+		if weapon_names.is_empty() or weapon_names.has(weapon.name):
+			selected_weapons.append(weapon)
+
+	if selected_weapons.is_empty():
+		return
+
+	var runtime_weapons: Array[WeaponResource] = []
+	for weapon in selected_weapons:
+		var runtime_weapon := _make_runtime_weapon(weapon)
+		if runtime_weapon != null:
+			runtime_weapons.append(runtime_weapon)
+
+	if runtime_weapons.is_empty():
+		return
+
+	equipped_weapons = runtime_weapons
+	current_weapon = equipped_weapons[0]
+
+func has_weapon(weapon: WeaponResource) -> bool:
+	if weapon == null:
+		return false
+	for equipped_weapon in equipped_weapons:
+		if equipped_weapon == weapon or equipped_weapon.resource_path == weapon.resource_path or equipped_weapon.name == weapon.name:
+			return true
+	return false
+
+func add_weapon(weapon: WeaponResource, equip_immediately: bool = true) -> bool:
+	if weapon == null or has_weapon(weapon):
+		return false
+
+	var runtime_weapon := _make_runtime_weapon(weapon)
+	if runtime_weapon == null:
+		return false
+
+	equipped_weapons.append(runtime_weapon)
+	if equip_immediately:
+		current_weapon = runtime_weapon
+	return true
 
 func update_weapon_model() -> void:
 	if current_weapon_view_model != null and is_instance_valid(current_weapon_view_model):
@@ -69,10 +153,15 @@ func apply_equipped_knife_skin() -> void:
 		return
 
 	var skin_color: Color = player_profile.call("get_equipped_knife_skin_color") as Color
-	_tint_weapon_model(current_weapon_view_model, skin_color)
-	_tint_weapon_model(current_weapon_world_model, skin_color)
+	var skin_texture: Texture2D = null
+	if player_profile.has_method("get_equipped_knife_skin_texture_path"):
+		var texture_path: String = str(player_profile.call("get_equipped_knife_skin_texture_path"))
+		if texture_path != "":
+			skin_texture = load(texture_path) as Texture2D
+	_apply_knife_skin_to_weapon_model(current_weapon_view_model, skin_color, skin_texture)
+	_apply_knife_skin_to_weapon_model(current_weapon_world_model, skin_color, skin_texture)
 
-func _tint_weapon_model(model: Node3D, skin_color: Color) -> void:
+func _apply_knife_skin_to_weapon_model(model: Node3D, skin_color: Color, skin_texture: Texture2D) -> void:
 	if model == null:
 		return
 
@@ -89,12 +178,35 @@ func _tint_weapon_model(model: Node3D, skin_color: Color) -> void:
 			var material := mesh_node.mesh.surface_get_material(surface_idx)
 			if material == null:
 				continue
+			if not _should_apply_knife_skin_to_surface(mesh_node):
+				continue
 			var local_material := material.duplicate()
 			if local_material is ShaderMaterial:
-				(local_material as ShaderMaterial).set_shader_parameter("albedo", skin_color)
+				var shader_material := local_material as ShaderMaterial
+				if not shader_material.has_meta(BASE_ALBEDO_TEXTURE_META):
+					shader_material.set_meta(BASE_ALBEDO_TEXTURE_META, shader_material.get_shader_parameter("texture_albedo"))
+				shader_material.set_shader_parameter("albedo", skin_color)
+				shader_material.set_shader_parameter("texture_albedo", skin_texture)
+				shader_material.set_shader_parameter("use_albedo_texture", skin_texture != null)
+				_make_knife_shader_material_clean(shader_material)
 			elif local_material is BaseMaterial3D:
-				(local_material as BaseMaterial3D).albedo_color = skin_color
+				var base_material := local_material as BaseMaterial3D
+				if not base_material.has_meta(BASE_ALBEDO_TEXTURE_META):
+					base_material.set_meta(BASE_ALBEDO_TEXTURE_META, base_material.albedo_texture)
+				base_material.albedo_color = skin_color
+				base_material.albedo_texture = skin_texture
+				_make_knife_base_material_clean(base_material)
 			mesh_node.mesh.surface_set_material(surface_idx, local_material)
+
+func _should_apply_knife_skin_to_surface(mesh_node: MeshInstance3D) -> bool:
+	var mesh_name := String(mesh_node.name).to_lower()
+	for blocked_name in ["arm", "hand", "body", "player", "droid", "robot", "base_mesh", "sleeve"]:
+		if mesh_name.contains(blocked_name):
+			return false
+	for knife_name in ["knife", "blade"]:
+		if mesh_name.contains(knife_name):
+			return true
+	return false
 
 ## Call this function on any node to apply the weapon_clip_and_fov_shader.gdshader to all meshes within it.
 func apply_clip_and_fov_shader_to_view_model(node3d : Node3D, fov_or_negative_for_unchanged = -1.0):
@@ -122,12 +234,37 @@ func apply_clip_and_fov_shader_to_view_model(node3d : Node3D, fov_or_negative_fo
 			weapon_shader_material.set_shader_parameter("viewmodel_fov", fov_or_negative_for_unchanged)
 			var tex_channels = { 0: Vector4(1., 0., 0., 0.), 1: Vector4(0., 1., 0., 0.), 2: Vector4(0., 0., 1., 0.), 3: Vector4(1., 0., 0., 1.), 4: Vector4() }
 			weapon_shader_material.set_shader_parameter("metallic_texture_channel", tex_channels[base_mat.metallic_texture_channel])
+			if _is_current_weapon_knife() and _should_apply_knife_skin_to_surface(mesh_instance):
+				_make_knife_shader_material_clean(weapon_shader_material)
 			mesh.surface_set_material(surface_idx, weapon_shader_material)
 
-func play_sound(sound : AudioStream):
+func _is_current_weapon_knife() -> bool:
+	return current_weapon != null and current_weapon.name.to_lower() == "knife"
+
+func _make_knife_shader_material_clean(material: ShaderMaterial) -> void:
+	material.set_shader_parameter("use_material_maps", false)
+	material.set_shader_parameter("texture_metallic", null)
+	material.set_shader_parameter("texture_roughness", null)
+	material.set_shader_parameter("texture_normal", null)
+	material.set_shader_parameter("metallic", 0.0)
+	material.set_shader_parameter("specular", 0.25)
+	material.set_shader_parameter("roughness", 0.72)
+	material.set_shader_parameter("normal_scale", 0.0)
+
+func _make_knife_base_material_clean(material: BaseMaterial3D) -> void:
+	material.metallic = 0.0
+	material.metallic_texture = null
+	material.roughness = 0.72
+	material.roughness_texture = null
+	material.normal_enabled = false
+	material.normal_texture = null
+	material.metallic_specular = 0.25
+
+func play_sound(sound : AudioStream, volume_db: float = 0.0):
 	if sound:
 		if audio_stream_player.stream != sound:
 			audio_stream_player.stream = sound
+		audio_stream_player.volume_db = volume_db
 		audio_stream_player.play()
 
 func stop_sounds():
@@ -240,6 +377,8 @@ func _unhandled_input(event):
 
 # Called when the node enters the scene tree for the first time.
 func _ready() -> void:
+	_remember_base_loadout()
+	_make_runtime_loadout()
 	update_weapon_model()
 
 # Called every frame. 'delta' is the elapsed time since the previous frame.

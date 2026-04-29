@@ -1,0 +1,63 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" uid="uid://hqrq6i3t544e" path="res://tom_cruise_boss.gd" id="1_boss"]
+[ext_resource type="Texture2D" path="res://cruise.png" id="2_boss"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_body"]
+radius = 0.2607422
+height = 0.8709717
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_bullet_hitbox"]
+radius = 0.75
+height = 2.3
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_boss"]
+transparency = 2
+alpha_scissor_threshold = 0.1
+albedo_texture = ExtResource("2_boss")
+albedo_texture_force_srgb = true
+billboard_mode = 1
+billboard_keep_scale = true
+
+[sub_resource type="QuadMesh" id="QuadMesh_boss"]
+material = SubResource("StandardMaterial3D_boss")
+
+[node name="TomCruiseBoss" type="CharacterBody3D"]
+transform = Transform3D(3.4, 0, 0, 0, 3.4, 0, 0, 0, 3.4, 0, 0, 0)
+script = ExtResource("1_boss")
+boss_max_health = 9000.0
+boss_speed = 6.25
+slam_range = 3.5
+minion_spawn_cooldown_seconds = 4.5
+max_live_minions = 8
+minion_speed_multiplier = 1.35
+minion_speed_growth_per_second = 0.025
+max_minion_speed_multiplier = 3.0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(0.20244056, 0, 0, 0, 0.18383008, 0, 0, 0, 0.16193482, 0, -0.39595777, 0)
+shape = SubResource("CapsuleShape3D_body")
+
+[node name="BulletHitbox" type="Area3D" parent="."]
+collision_layer = 256
+collision_mask = 0
+monitorable = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BulletHitbox"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 0)
+shape = SubResource("CapsuleShape3D_bullet_hitbox")
+
+[node name="NavigationAgent3D" type="NavigationAgent3D" parent="."]
+
+[node name="nightmare mode" type="OmniLight3D" parent="."]
+visible = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.4, 0)
+light_color = Color(0.05, 0.72, 1, 1)
+light_energy = 5.0
+light_indirect_energy = 0.0
+light_volumetric_fog_energy = 0.0
+omni_range = 10.0
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(2.195, 0, 0, 0, 2.194985, -0.008121697, 0, 0.008121697, 2.194985, 0, 0.5490393, 0)
+mesh = SubResource("QuadMesh_boss")

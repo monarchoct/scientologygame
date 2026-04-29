@@ -35,10 +35,11 @@ enum CharacterHoldStyle {
 @export var shoot_sound : AudioStream
 @export var reload_sound : AudioStream
 @export var unholster_sound : AudioStream
+@export var shoot_volume_db : float = 0.0
 
 ## Weapon logic
 
-@export var damage = 10
+@export var damage = 25
 
 @export var current_ammo := INF
 @export var magazine_capacity := INF
@@ -46,6 +47,7 @@ enum CharacterHoldStyle {
 @export var max_reserve_ammo := INF
 
 @export var auto_fire : bool = true
+@export var auto_reload_when_empty : bool = true
 @export var max_fire_rate_ms : float = 50
 
 @export var spray_pattern : Curve2D
@@ -78,13 +80,13 @@ func on_process(delta):
 	if trigger_down and auto_fire and Time.get_ticks_msec() - last_fire_time >= max_fire_rate_ms:
 		if current_ammo > 0:
 			fire_shot()
-		else:
+		elif auto_reload_when_empty:
 			reload_pressed()
 
 func on_trigger_down():
 	if Time.get_ticks_msec() - last_fire_time >= max_fire_rate_ms and current_ammo > 0:
 		fire_shot()
-	elif current_ammo == 0:
+	elif current_ammo == 0 and auto_reload_when_empty:
 		reload_pressed()
 
 func on_trigger_up():
@@ -124,11 +126,23 @@ func reload():
 		current_ammo += can_reload
 		reserve_ammo -= can_reload
 
+func reset_ammo() -> void:
+	current_ammo = magazine_capacity
+	reserve_ammo = max_reserve_ammo
+
+func _get_damage_target(obj: Object) -> Object:
+	var node: Node = obj as Node
+	while node != null:
+		if node.has_method("take_damage"):
+			return node
+		node = node.get_parent()
+	return obj
+
 var num_shots_fired : int = 0
 func fire_shot():
 	weapon_manager.trigger_weapon_shoot_world_anim()
 	weapon_manager.play_anim(view_shoot_anim)
-	weapon_manager.play_sound(shoot_sound)
+	weapon_manager.play_sound(shoot_sound, shoot_volume_db)
 	weapon_manager.queue_anim(view_idle_anim)
 	
 	var raycast = weapon_manager.bullet_raycast
@@ -146,8 +160,9 @@ func fire_shot():
 		BulletDecalPool.spawn_bullet_decal(pt, nrml, obj, raycast.global_basis)
 		if obj is RigidBody3D:
 			obj.apply_impulse(-nrml * 5.0 / obj.mass, pt - obj.global_position)
-		if obj.has_method("take_damage"):
-			obj.take_damage(self.damage)
+		var damage_target: Object = _get_damage_target(obj)
+		if damage_target.has_method("take_damage"):
+			damage_target.take_damage(self.damage, pt, nrml)
 	
 	weapon_manager.show_muzzle_flash()
 	if num_shots_fired % 2 == 0:

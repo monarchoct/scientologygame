@@ -16,7 +16,15 @@ const ROUND_TIMER_START_DELAY : float = 0.0
 const USE_EDITOR_COIN_STATE_UI : bool = true
 const EXIT_TRIGGER_SIZE : Vector3 = Vector3(8.0, 6.0, 6.0)
 const END_PORTAL_SOUND_PATH : String = "res://FPSController/weapon_manager/player_hud/endportal.mp3"
-const END_PORTAL_VOLUME_DB : float = 10.0
+const END_PORTAL_VOLUME_DB : float = 18.0
+const END_PORTAL_MAX_DISTANCE : float = 100000.0
+const END_PORTAL_UNIT_SIZE : float = 100000.0
+const NIGHTMARE_LIGHT_ENERGY_MULTIPLIER : float = 0.04
+const NIGHTMARE_ORIGINAL_ENVIRONMENT_META : StringName = &"nightmare_original_environment"
+const NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META : StringName = &"nightmare_original_light_visible"
+const NIGHTMARE_ORIGINAL_LIGHT_ENERGY_META : StringName = &"nightmare_original_light_energy"
+const NIGHTMARE_ORIGINAL_LIGHT_INDIRECT_META : StringName = &"nightmare_original_light_indirect_energy"
+const NIGHTMARE_ORIGINAL_LIGHT_VOLUMETRIC_META : StringName = &"nightmare_original_light_volumetric_energy"
 const EXIT_WIN_ARM_DELAY_SECONDS : float = 0.5
 const WINNING_MUSIC_PATH : String = "res://FPSController/weapon_manager/player_hud/winning.mp3"
 const WIN_FADE_DURATION : float = 5.0
@@ -30,6 +38,19 @@ const SENSITIVITY_SLIDER_SCALE : float = 1000.0
 const DEFAULT_MOUSE_SENSITIVITY : float = 0.006
 const MIN_MOUSE_SENSITIVITY : float = 0.001
 const MAX_MOUSE_SENSITIVITY : float = 0.02
+const BOSS_MUSIC_PATH: String = "res://bossmusic.mp3"
+const BOSS_MUSIC_START_SECONDS: float = 12.0
+const BOSS_FIGHT_START_MUSIC_SECONDS: float = 22.0
+const BOSS_SUMMON_TEXTURE_PATH: String = "res://TOM CRUISE.png"
+const BOSS_SUMMON_FADE_SECONDS: float = 5.0
+const TOM_CRUISE_BOSS_SCENE: PackedScene = preload("res://tom_cruise_boss.tscn")
+const TOM_CRUISE_BOSS_P90: WeaponResource = preload("res://FPSController/weapon_manager/p90/p90.tres")
+const TOM_CRUISE_BOSS_CHANCE: float = 0.10
+const TOM_CRUISE_BOSS_PLAYER_OFFSET: Vector3 = Vector3(0.0, 0.6, 7.0)
+const TOM_CRUISE_BOSS_SPAWN_OFFSET: Vector3 = Vector3(0.0, 0.0, -4.0)
+const TOM_CRUISE_BOSS_LIGHT_OFFSET: Vector3 = Vector3(0.0, 7.0, 0.0)
+const TOM_CRUISE_BOSS_LIGHT_ENERGY: float = 9.0
+const TOM_CRUISE_BOSS_LIGHT_RANGE: float = 28.0
 
 @export var coin_scene: PackedScene = preload("res://coin.tscn")
 @export var coin_spawn_count: int = 3
@@ -51,6 +72,7 @@ var door_open_sound : AudioStreamPlayer
 var enemy_sound : AudioStreamPlayer
 var background_music : AudioStreamPlayer
 var winning_music : AudioStreamPlayer
+var boss_music : AudioStreamPlayer
 var ui_click_sound : AudioStreamPlayer
 var main_ui : Control
 var ui_root : Control
@@ -85,6 +107,20 @@ var difficulty_overlay : Control = null
 var coin_popup_layer : CanvasLayer
 var coin_popup_ui : Control
 var coin_popup_previous_mouse_mode : int = Input.MOUSE_MODE_CAPTURED
+var boss_rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var boss_encounter_active: bool = false
+var boss_intro_active: bool = false
+var boss_node: Node3D = null
+var boss_ui: Control = null
+var boss_health_bar: ProgressBar = null
+var boss_health_label: Label = null
+var boss_objective_label: Label = null
+var boss_summon_image: TextureRect = null
+var boss_room_origin: Vector3 = Vector3.ZERO
+var boss_room_light: OmniLight3D = null
+var round_enemy_total: int = 0
+var round_enemy_kills: int = 0
+var round_enemy_kill_ids: Dictionary = {}
 
 func _ready() -> void:
 	_load_player_progress()
@@ -125,11 +161,13 @@ func _ready() -> void:
 	_create_enemy_sound_player()
 	_create_background_music_player()
 	_create_winning_music_player()
+	_create_boss_music_player()
 	_create_ui_click_sound_player()
 	_create_timer_label()
 	_create_coin_state_ui()
 	_create_menu_screens()
 	_create_coin_popup_ui()
+	_create_boss_ui()
 	_create_game_over_labels()
 	_update_timer_label()
 	_update_coin_state_ui()
@@ -139,7 +177,9 @@ func _ready() -> void:
 	_set_exit_open(false)
 	enemy_voice_rng.randomize()
 	coin_spawn_rng.randomize()
+	boss_rng.randomize()
 	call_deferred("_setup_random_coins")
+	call_deferred("_connect_guard_death_signals")
 
 	var skip_main_menu: bool = _consume_skip_main_menu_once()
 	if show_main_menu_on_start and not skip_main_menu:
@@ -170,6 +210,17 @@ func _process(delta : float) -> void:
 			_on_timer_expired()
 		# else game over already shown
 
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey:
+		var key_event: InputEventKey = event as InputEventKey
+		if key_event.pressed and not key_event.echo and key_event.keycode == KEY_K:
+			_try_debug_start_boss_fight()
+
+func _try_debug_start_boss_fight() -> void:
+	if not round_started or not is_alive or has_won or boss_encounter_active:
+		return
+	_start_tom_cruise_boss_fight()
+
 func _on_player_player_hit() -> void:
 	if not PLAYER_DAMAGE_ENABLED or not is_alive or has_won or damage_grace_active:
 		return
@@ -187,10 +238,16 @@ func _on_player_player_hit() -> void:
 
 	# No lives left — game over
 	is_alive = false
+	if boss_ui:
+		boss_ui.visible = false
+	_clear_boss_fight_lighting()
+	_clear_boss_intro_overlay()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_stop_enemy_proximity_audio()
 	if background_music.playing:
 		background_music.stop()
+	if boss_music != null and boss_music.playing:
+		boss_music.stop()
 	death_sound.play()
 	_show_flash()
 	_show_game_over()
@@ -206,10 +263,16 @@ func _on_timer_expired() -> void:
 
 	is_alive = false
 	round_timer_started = false
+	if boss_ui:
+		boss_ui.visible = false
+	_clear_boss_fight_lighting()
+	_clear_boss_intro_overlay()
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	_stop_enemy_proximity_audio()
 	if background_music.playing:
 		background_music.stop()
+	if boss_music != null and boss_music.playing:
+		boss_music.stop()
 	_show_flash()
 	_show_game_over()
 	_save_survival_time(TOTAL_TIME)
@@ -339,6 +402,75 @@ func _create_popup_hit_button(button_name: String, anchor_position: Vector2, nor
 	button.pressed.connect(callback)
 	return button
 
+func _create_boss_ui() -> void:
+	boss_ui = Control.new()
+	boss_ui.name = "TomCruiseBossUI"
+	boss_ui.process_mode = Node.PROCESS_MODE_ALWAYS
+	boss_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
+	boss_ui.visible = false
+	ui_root.add_child(boss_ui)
+
+	var panel: Panel = Panel.new()
+	panel.name = "BossBarPanel"
+	panel.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	panel.offset_left = -360.0
+	panel.offset_top = 26.0
+	panel.offset_right = 360.0
+	panel.offset_bottom = 106.0
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_style_glass_panel(panel, 12)
+	boss_ui.add_child(panel)
+
+	boss_health_label = Label.new()
+	boss_health_label.name = "BossName"
+	boss_health_label.text = "TOM CRUISE"
+	boss_health_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_health_label.position = Vector2(0.0, 8.0)
+	boss_health_label.size = Vector2(720.0, 30.0)
+	_style_bold_label(boss_health_label, 24, Color(0.8, 0.95, 1.0))
+	panel.add_child(boss_health_label)
+
+	boss_health_bar = ProgressBar.new()
+	boss_health_bar.name = "BossHealth"
+	boss_health_bar.min_value = 0.0
+	boss_health_bar.max_value = 100.0
+	boss_health_bar.value = 100.0
+	boss_health_bar.show_percentage = false
+	boss_health_bar.position = Vector2(34.0, 44.0)
+	boss_health_bar.size = Vector2(652.0, 22.0)
+	boss_health_bar.add_theme_stylebox_override("background", _make_glass_style(Color(0.02, 0.03, 0.05, 0.9), Color(0.7, 0.9, 1.0, 0.18), 8, 1))
+	boss_health_bar.add_theme_stylebox_override("fill", _make_glass_style(Color(0.95, 0.08, 0.04, 0.96), Color(1.0, 0.45, 0.3, 0.72), 8, 0))
+	panel.add_child(boss_health_bar)
+
+	boss_objective_label = Label.new()
+	boss_objective_label.name = "BossObjective"
+	boss_objective_label.text = "SAVE SHANNON"
+	boss_objective_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_objective_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	boss_objective_label.offset_left = -220.0
+	boss_objective_label.offset_top = 112.0
+	boss_objective_label.offset_right = 220.0
+	boss_objective_label.offset_bottom = 150.0
+	boss_objective_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_style_bold_label(boss_objective_label, 26, Color(1.0, 0.92, 0.76))
+	boss_ui.add_child(boss_objective_label)
+
+	boss_summon_image = TextureRect.new()
+	boss_summon_image.name = "BossSummonImage"
+	boss_summon_image.texture = load(BOSS_SUMMON_TEXTURE_PATH) as Texture2D
+	boss_summon_image.set_anchors_preset(Control.PRESET_CENTER)
+	boss_summon_image.offset_left = -320.0
+	boss_summon_image.offset_top = -180.0
+	boss_summon_image.offset_right = 320.0
+	boss_summon_image.offset_bottom = 180.0
+	boss_summon_image.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	boss_summon_image.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	boss_summon_image.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_summon_image.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	boss_summon_image.visible = false
+	ui_root.add_child(boss_summon_image)
+
 func _create_menu_screens() -> void:
 	var main_menu_scene: PackedScene = load("res://main.tscn") as PackedScene
 	main_menu_ui = main_menu_scene.instantiate() as Control
@@ -401,6 +533,80 @@ func _connect_menu_button(button_path: NodePath, callback: Callable) -> void:
 	if not button.pressed.is_connected(callback):
 		button.pressed.connect(callback)
 
+func _make_glass_style(fill_color: Color, border_color: Color, radius: int = 12, border_width: int = 1) -> StyleBoxFlat:
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = fill_color
+	style.border_color = border_color
+	style.border_width_left = border_width
+	style.border_width_top = border_width
+	style.border_width_right = border_width
+	style.border_width_bottom = border_width
+	style.corner_radius_top_left = radius
+	style.corner_radius_top_right = radius
+	style.corner_radius_bottom_right = radius
+	style.corner_radius_bottom_left = radius
+	style.shadow_color = Color(0.0, 0.0, 0.0, 0.35)
+	style.shadow_size = 18
+	style.shadow_offset = Vector2(0.0, 8.0)
+	return style
+
+func _style_glass_panel(panel: Control, radius: int = 14) -> void:
+	panel.add_theme_stylebox_override("panel", _make_glass_style(Color(0.05, 0.08, 0.11, 0.74), Color(0.76, 0.95, 1.0, 0.26), radius, 1))
+
+func _style_bold_label(label: Label, font_size: int, color: Color = Color(1.0, 1.0, 1.0)) -> void:
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.82))
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.6))
+	label.add_theme_constant_override("outline_size", 1)
+	label.add_theme_constant_override("shadow_offset_x", 1)
+	label.add_theme_constant_override("shadow_offset_y", 1)
+
+func _style_glass_button(button: Button, accent_color: Color = Color(0.45, 0.9, 1.0)) -> void:
+	button.flat = false
+	button.add_theme_font_size_override("font_size", 17)
+	button.add_theme_color_override("font_color", Color(0.94, 0.98, 1.0))
+	button.add_theme_color_override("font_outline_color", Color(0.0, 0.0, 0.0, 0.8))
+	button.add_theme_constant_override("outline_size", 1)
+	button.add_theme_stylebox_override("normal", _make_glass_style(Color(0.09, 0.14, 0.18, 0.8), accent_color.darkened(0.25), 10, 1))
+	button.add_theme_stylebox_override("hover", _make_glass_style(Color(0.15, 0.25, 0.3, 0.88), accent_color, 10, 1))
+	button.add_theme_stylebox_override("pressed", _make_glass_style(Color(0.06, 0.12, 0.16, 0.92), accent_color.lightened(0.12), 10, 1))
+	button.add_theme_stylebox_override("disabled", _make_glass_style(Color(0.05, 0.06, 0.07, 0.58), Color(0.4, 0.46, 0.5, 0.28), 10, 1))
+	button.add_theme_color_override("font_disabled_color", Color(0.55, 0.62, 0.66))
+
+func _create_knife_preview_frame(profile, skin_id: String) -> Panel:
+	var frame: Panel = Panel.new()
+	frame.custom_minimum_size = Vector2(68.0, 48.0)
+	frame.add_theme_stylebox_override("panel", _make_glass_style(Color(0.02, 0.03, 0.045, 0.82), Color(0.9, 1.0, 1.0, 0.18), 8, 1))
+
+	var texture_path: String = profile.get_knife_skin_texture_path(skin_id) if profile.has_method("get_knife_skin_texture_path") else ""
+	if texture_path != "":
+		var texture: Texture2D = load(texture_path) as Texture2D
+		if texture != null:
+			var preview: TextureRect = TextureRect.new()
+			preview.set_anchors_preset(Control.PRESET_FULL_RECT)
+			preview.offset_left = 7.0
+			preview.offset_top = 5.0
+			preview.offset_right = -7.0
+			preview.offset_bottom = -5.0
+			preview.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+			preview.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			preview.texture = texture
+			preview.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			frame.add_child(preview)
+			return frame
+
+	var color_swatch: ColorRect = ColorRect.new()
+	color_swatch.set_anchors_preset(Control.PRESET_FULL_RECT)
+	color_swatch.offset_left = 10.0
+	color_swatch.offset_top = 8.0
+	color_swatch.offset_right = -10.0
+	color_swatch.offset_bottom = -8.0
+	color_swatch.color = profile.get_knife_skin_color(skin_id) if profile.has_method("get_knife_skin_color") else Color(0.8, 0.9, 1.0)
+	color_swatch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	frame.add_child(color_swatch)
+	return frame
+
 func _create_settings_menu_ui() -> void:
 	settings_menu_ui = Control.new()
 	settings_menu_ui.name = "SettingsMenuUI"
@@ -421,7 +627,7 @@ func _create_settings_menu_ui() -> void:
 	dim_background.offset_top = 0.0
 	dim_background.offset_right = 0.0
 	dim_background.offset_bottom = 0.0
-	dim_background.color = Color(0, 0, 0, 0.55)
+	dim_background.color = Color(0.0, 0.02, 0.035, 0.72)
 	dim_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	settings_menu_ui.add_child(dim_background)
 
@@ -433,14 +639,14 @@ func _create_settings_menu_ui() -> void:
 	panel.offset_right = SETTINGS_PANEL_SIZE.x * 0.5
 	panel.offset_bottom = SETTINGS_PANEL_SIZE.y * 0.5
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_style_glass_panel(panel)
 	settings_menu_ui.add_child(panel)
 
 	var title_label: Label = Label.new()
 	title_label.name = "Title"
 	title_label.text = "SETTINGS"
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_label.add_theme_font_size_override("font_size", 34)
-	title_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_style_bold_label(title_label, 34, Color(0.9, 1.0, 1.0))
 	title_label.position = Vector2(0.0, 18.0)
 	title_label.size = Vector2(SETTINGS_PANEL_SIZE.x, 45.0)
 	panel.add_child(title_label)
@@ -448,8 +654,7 @@ func _create_settings_menu_ui() -> void:
 	var volume_label: Label = Label.new()
 	volume_label.name = "VolumeLabel"
 	volume_label.text = "VOLUME"
-	volume_label.add_theme_font_size_override("font_size", 22)
-	volume_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_style_bold_label(volume_label, 22, Color(0.88, 0.96, 1.0))
 	volume_label.position = Vector2(55.0, 84.0)
 	volume_label.size = Vector2(140.0, 34.0)
 	panel.add_child(volume_label)
@@ -469,15 +674,14 @@ func _create_settings_menu_ui() -> void:
 	var sensitivity_label: Label = Label.new()
 	sensitivity_label.name = "SensitivityLabel"
 	sensitivity_label.text = "SENS"
-	sensitivity_label.add_theme_font_size_override("font_size", 22)
-	sensitivity_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_style_bold_label(sensitivity_label, 22, Color(0.88, 0.96, 1.0))
 	sensitivity_label.position = Vector2(55.0, 138.0)
 	sensitivity_label.size = Vector2(140.0, 34.0)
 	panel.add_child(sensitivity_label)
 
 	var sensitivity_slider: HSlider = HSlider.new()
 	sensitivity_slider.name = "SensitivitySlider"
-	var profile := _get_player_profile()
+	var profile = _get_player_profile()
 	sensitivity_slider.min_value = MIN_MOUSE_SENSITIVITY * SENSITIVITY_SLIDER_SCALE
 	sensitivity_slider.max_value = MAX_MOUSE_SENSITIVITY * SENSITIVITY_SLIDER_SCALE
 	sensitivity_slider.step = 0.1
@@ -495,6 +699,7 @@ func _create_settings_menu_ui() -> void:
 	back_button.size = Vector2(200.0, 48.0)
 	back_button.focus_mode = Control.FOCUS_NONE
 	back_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_style_glass_button(back_button)
 	back_button.pressed.connect(_on_settings_back_pressed)
 	panel.add_child(back_button)
 
@@ -507,7 +712,7 @@ func _create_main_menu_shop_button() -> void:
 	shop_button.size = SHOP_BUTTON_SIZE
 	shop_button.focus_mode = Control.FOCUS_NONE
 	shop_button.mouse_filter = Control.MOUSE_FILTER_STOP
-	shop_button.add_theme_font_size_override("font_size", 20)
+	_style_glass_button(shop_button, Color(0.68, 1.0, 0.82))
 	shop_button.pressed.connect(_on_shop_pressed)
 	main_menu_ui.add_child(shop_button)
 
@@ -523,52 +728,52 @@ func _create_shop_menu_ui() -> void:
 	var dim_background: ColorRect = ColorRect.new()
 	dim_background.name = "DimBackground"
 	dim_background.set_anchors_preset(Control.PRESET_FULL_RECT)
-	dim_background.color = Color(0, 0, 0, 0.65)
+	dim_background.color = Color(0.0, 0.015, 0.03, 0.78)
 	dim_background.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	shop_menu_ui.add_child(dim_background)
 
 	var panel: Panel = Panel.new()
 	panel.name = "Panel"
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.offset_left = -280.0
-	panel.offset_top = -220.0
-	panel.offset_right = 280.0
-	panel.offset_bottom = 220.0
+	panel.offset_left = -360.0
+	panel.offset_top = -300.0
+	panel.offset_right = 360.0
+	panel.offset_bottom = 300.0
 	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_style_glass_panel(panel, 16)
 	shop_menu_ui.add_child(panel)
 
 	var title_label: Label = Label.new()
 	title_label.text = "SHOP"
 	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title_label.add_theme_font_size_override("font_size", 34)
-	title_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	_style_bold_label(title_label, 34, Color(0.92, 1.0, 1.0))
 	title_label.position = Vector2(0.0, 18.0)
-	title_label.size = Vector2(560.0, 45.0)
+	title_label.size = Vector2(720.0, 45.0)
 	panel.add_child(title_label)
 
 	shop_coin_label = Label.new()
 	shop_coin_label.name = "CoinLabel"
 	shop_coin_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	shop_coin_label.add_theme_font_size_override("font_size", 22)
-	shop_coin_label.add_theme_color_override("font_color", Color(1.0, 0.84, 0.25))
+	_style_bold_label(shop_coin_label, 22, Color(1.0, 0.84, 0.25))
 	shop_coin_label.position = Vector2(0.0, 68.0)
-	shop_coin_label.size = Vector2(560.0, 34.0)
+	shop_coin_label.size = Vector2(720.0, 34.0)
 	panel.add_child(shop_coin_label)
 
 	shop_rows_container = VBoxContainer.new()
 	shop_rows_container.name = "Rows"
-	shop_rows_container.position = Vector2(60.0, 118.0)
-	shop_rows_container.size = Vector2(440.0, 220.0)
-	shop_rows_container.add_theme_constant_override("separation", 12)
+	shop_rows_container.position = Vector2(48.0, 116.0)
+	shop_rows_container.size = Vector2(624.0, 374.0)
+	shop_rows_container.add_theme_constant_override("separation", 8)
 	panel.add_child(shop_rows_container)
 
 	var back_button: Button = Button.new()
 	back_button.name = "Back"
 	back_button.text = "BACK"
-	back_button.position = Vector2(180.0, 360.0)
+	back_button.position = Vector2(260.0, 506.0)
 	back_button.size = Vector2(200.0, 48.0)
 	back_button.focus_mode = Control.FOCUS_NONE
 	back_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	_style_glass_button(back_button)
 	back_button.pressed.connect(_on_shop_back_pressed)
 	panel.add_child(back_button)
 
@@ -591,22 +796,20 @@ func _on_settings_volume_changed(value: float) -> void:
 
 func _on_settings_sensitivity_changed(value: float) -> void:
 	var sensitivity: float = value / SENSITIVITY_SLIDER_SCALE
-	var profile := _get_player_profile()
+	var profile = _get_player_profile()
 	if profile:
 		profile.set_mouse_sensitivity(sensitivity)
 
-	var player := _get_player()
+	var player: Node3D = _get_player()
 	if player is FPSController:
 		(player as FPSController).look_sensitivity = sensitivity
 
 func _on_settings_back_pressed() -> void:
-	_play_ui_click_sound()
 	settings_menu_ui.visible = false
 	if main_menu_ui:
 		main_menu_ui.visible = true
 
 func _on_shop_pressed() -> void:
-	_play_ui_click_sound()
 	_hide_coin_popup()
 	if main_menu_ui:
 		main_menu_ui.visible = false
@@ -614,10 +817,9 @@ func _on_shop_pressed() -> void:
 		settings_menu_ui.visible = false
 	if shop_menu_ui:
 		shop_menu_ui.visible = true
-	_refresh_shop_menu()
+		_refresh_shop_menu()
 
 func _on_shop_back_pressed() -> void:
-	_play_ui_click_sound()
 	if shop_menu_ui:
 		shop_menu_ui.visible = false
 	if main_menu_ui:
@@ -625,7 +827,7 @@ func _on_shop_back_pressed() -> void:
 	_show_coin_popup()
 
 func _refresh_shop_menu() -> void:
-	var profile := _get_player_profile()
+	var profile = _get_player_profile()
 	if profile == null or shop_rows_container == null:
 		return
 
@@ -634,35 +836,65 @@ func _refresh_shop_menu() -> void:
 		child.queue_free()
 
 	for skin_id in profile.get_knife_skin_ids():
-		var row := HBoxContainer.new()
-		row.custom_minimum_size = Vector2(440.0, 44.0)
-		row.add_theme_constant_override("separation", 12)
+		var row_panel: PanelContainer = PanelContainer.new()
+		row_panel.custom_minimum_size = Vector2(624.0, 52.0)
+		row_panel.add_theme_stylebox_override("panel", _make_glass_style(Color(0.07, 0.105, 0.135, 0.62), Color(0.8, 1.0, 1.0, 0.16), 10, 1))
 
-		var name_label := Label.new()
+		var row: HBoxContainer = HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		row_panel.add_child(row)
+
+		var preview_frame: Panel = _create_knife_preview_frame(profile, skin_id)
+		row.add_child(preview_frame)
+
+		var text_stack: VBoxContainer = VBoxContainer.new()
+		text_stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		text_stack.add_theme_constant_override("separation", 2)
+		row.add_child(text_stack)
+
+		var name_label: Label = Label.new()
 		name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		name_label.text = "%s  -  %d" % [profile.get_knife_skin_display_name(skin_id), profile.get_knife_skin_cost(skin_id)]
-		name_label.add_theme_font_size_override("font_size", 18)
-		name_label.add_theme_color_override("font_color", profile.get_equipped_knife_skin_color() if profile.equipped_knife_skin == skin_id else Color(1, 1, 1))
-		row.add_child(name_label)
+		name_label.text = profile.get_knife_skin_display_name(skin_id)
+		_style_bold_label(name_label, 18, profile.get_knife_skin_color(skin_id) if profile.equipped_knife_skin == skin_id else Color(0.94, 0.98, 1.0))
+		text_stack.add_child(name_label)
 
-		var action_button := Button.new()
-		action_button.custom_minimum_size = Vector2(130.0, 40.0)
+		var status_label: Label = Label.new()
+		var cost: int = profile.get_knife_skin_cost(skin_id)
+		var unlock_text: String = profile.get_knife_skin_unlock_text(skin_id) if profile.has_method("get_knife_skin_unlock_text") else ""
+		if profile.owns_knife_skin(skin_id):
+			status_label.text = "OWNED"
+		elif not profile.is_knife_skin_unlocked(skin_id):
+			status_label.text = unlock_text
+		elif cost <= 0:
+			status_label.text = "FREE"
+		else:
+			status_label.text = "%d COINS" % cost
+		_style_bold_label(status_label, 13, Color(0.72, 0.84, 0.9))
+		text_stack.add_child(status_label)
+
+		var action_button: Button = Button.new()
+		action_button.custom_minimum_size = Vector2(118.0, 36.0)
 		action_button.focus_mode = Control.FOCUS_NONE
+		_style_glass_button(action_button, profile.get_knife_skin_color(skin_id))
 		if profile.equipped_knife_skin == skin_id:
 			action_button.text = "EQUIPPED"
 			action_button.disabled = true
 		elif profile.owns_knife_skin(skin_id):
 			action_button.text = "EQUIP"
+		elif not profile.is_knife_skin_unlocked(skin_id):
+			action_button.text = "LOCKED"
+			action_button.disabled = true
 		else:
 			action_button.text = "BUY"
 			action_button.disabled = profile.coins < profile.get_knife_skin_cost(skin_id)
 		action_button.pressed.connect(_on_shop_skin_pressed.bind(skin_id))
 		row.add_child(action_button)
 
-		shop_rows_container.add_child(row)
+		shop_rows_container.add_child(row_panel)
 
 func _on_shop_skin_pressed(skin_id: String) -> void:
-	var profile := _get_player_profile()
+	var profile = _get_player_profile()
 	if profile == null:
 		return
 	if profile.buy_or_equip_knife_skin(skin_id):
@@ -670,10 +902,10 @@ func _on_shop_skin_pressed(skin_id: String) -> void:
 		_apply_current_player_knife_skin()
 
 func _apply_current_player_knife_skin() -> void:
-	var player := _get_player()
+	var player: Node3D = _get_player()
 	if player == null:
 		return
-	var weapon_manager := player.find_child("WeaponManager", true, false)
+	var weapon_manager: Node = player.find_child("WeaponManager", true, false)
 	if weapon_manager and weapon_manager.has_method("apply_equipped_knife_skin"):
 		weapon_manager.apply_equipped_knife_skin()
 
@@ -754,9 +986,6 @@ func _on_end_retry_pressed() -> void:
 	get_tree().call_deferred("reload_current_scene")
 
 func _on_end_main_pressed() -> void:
-	_play_ui_click_sound()
-	var click_timer: SceneTreeTimer = get_tree().create_timer(0.2, true)
-	await click_timer.timeout
 	get_tree().paused = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
 	get_tree().reload_current_scene()
@@ -868,7 +1097,7 @@ func _create_pause_menu() -> void:
 	# Dark overlay background
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0, 0, 0, 0.65)
+	bg.color = Color(0.0, 0.015, 0.03, 0.72)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	pause_menu_ui.add_child(bg)
 
@@ -879,8 +1108,7 @@ func _create_pause_menu() -> void:
 	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	title.position = Vector2(-150, 180)
 	title.size = Vector2(300, 60)
-	title.add_theme_font_size_override("font_size", 36)
-	title.add_theme_color_override("font_color", Color(1, 1, 1))
+	_style_bold_label(title, 36, Color(0.92, 1.0, 1.0))
 	pause_menu_ui.add_child(title)
 
 	# Continue button
@@ -889,7 +1117,7 @@ func _create_pause_menu() -> void:
 	continue_btn.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	continue_btn.position = Vector2(-120, 270)
 	continue_btn.size = Vector2(240, 55)
-	continue_btn.add_theme_font_size_override("font_size", 20)
+	_style_glass_button(continue_btn)
 	continue_btn.pressed.connect(_on_pause_continue_pressed)
 	pause_menu_ui.add_child(continue_btn)
 
@@ -899,28 +1127,21 @@ func _create_pause_menu() -> void:
 	menu_btn.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	menu_btn.position = Vector2(-120, 340)
 	menu_btn.size = Vector2(240, 55)
-	menu_btn.add_theme_font_size_override("font_size", 20)
-	menu_btn.add_theme_color_override("font_color", Color(1, 0.4, 0.4))
+	_style_glass_button(menu_btn, Color(1.0, 0.36, 0.36))
 	menu_btn.pressed.connect(_on_pause_main_menu_pressed)
 	pause_menu_ui.add_child(menu_btn)
 
 func _on_pause_continue_pressed() -> void:
-	_play_ui_click_sound()
 	get_tree().paused = false
 	pause_menu_ui.visible = false
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 func _on_pause_main_menu_pressed() -> void:
-	_play_ui_click_sound()
 	get_tree().paused = false
-	pause_menu_ui.visible = false
-	# Reset round state so a fresh round starts when Play is clicked again
-	round_started = false
-	round_timer_started = false
-	is_alive = true
-	has_won = false
-	time_left = TOTAL_TIME
-	_show_main_menu()
+	if pause_menu_ui:
+		pause_menu_ui.visible = false
+	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+	get_tree().call_deferred("reload_current_scene")
 
 func _consume_skip_main_menu_once() -> bool:
 	if not get_tree().has_meta("skip_main_menu_once"):
@@ -940,7 +1161,6 @@ func _start_game_after_reload() -> void:
 	_start_round_sequence()
 
 func _on_play_pressed() -> void:
-	_play_ui_click_sound()
 	_show_difficulty_overlay()
 
 
@@ -956,53 +1176,108 @@ func _show_difficulty_overlay() -> void:
 	difficulty_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	ui_root.add_child(difficulty_overlay)
 
-	# Semi-transparent dark background
 	var bg := ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0, 0, 0, 0.72)
+	bg.color = Color(0.0, 0.01, 0.025, 0.84)
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	difficulty_overlay.add_child(bg)
 
-	# Title label
+	var panel := Panel.new()
+	panel.name = "DifficultyPanel"
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -300.0
+	panel.offset_top = -185.0
+	panel.offset_right = 300.0
+	panel.offset_bottom = 185.0
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	_style_glass_panel(panel, 12)
+	difficulty_overlay.add_child(panel)
+
 	var title := Label.new()
+	title.name = "Title"
 	title.text = "SELECT DIFFICULTY"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	title.position = Vector2(-200, 160)
-	title.size = Vector2(400, 50)
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", Color(1, 1, 1))
-	difficulty_overlay.add_child(title)
+	title.position = Vector2(0.0, 18.0)
+	title.size = Vector2(600.0, 34.0)
+	_style_bold_label(title, 27, Color(0.92, 1.0, 1.0))
+	panel.add_child(title)
 
-	var button_labels := ["EASY", "MEDIUM", "HARDCORE"]
-	var button_colors := [Color(0.2, 0.8, 0.2), Color(0.9, 0.75, 0.1), Color(0.85, 0.1, 0.1)]
-	var difficulties: Array[DifficultyManager.Difficulty] = [DifficultyManager.Difficulty.EASY, DifficultyManager.Difficulty.MEDIUM, DifficultyManager.Difficulty.HARDCORE]
-	var descriptions := ["3 Lives  |  Slow guards", "1 Extra Hit  |  Faster guards", "No Lives  |  Guards at full speed"]
-	var base_y := 230
+	var subtitle := Label.new()
+	subtitle.name = "Subtitle"
+	subtitle.text = "Pick your loadout and risk"
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.position = Vector2(0.0, 52.0)
+	subtitle.size = Vector2(600.0, 24.0)
+	_style_bold_label(subtitle, 13, Color(0.68, 0.8, 0.86))
+	panel.add_child(subtitle)
 
-	for i in range(3):
-		var btn := Button.new()
-		btn.text = button_labels[i]
-		btn.size = Vector2(320, 60)
-		btn.position = Vector2(-160 + 580.0 / 2.0, base_y + i * 90)
-		# Centre horizontally relative to full rect
-		btn.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		btn.position = Vector2(-160, base_y + i * 90)
-		btn.add_theme_color_override("font_color", button_colors[i])
-		btn.add_theme_font_size_override("font_size", 22)
-		var d: DifficultyManager.Difficulty = difficulties[i]
-		btn.pressed.connect(func(): _on_difficulty_selected(d))
-		difficulty_overlay.add_child(btn)
+	var button_labels := ["EASY", "NORMAL", "HARDCORE", "NIGHTMARE"]
+	var button_colors := [Color(0.24, 0.95, 0.48), Color(1.0, 0.78, 0.22), Color(1.0, 0.18, 0.14), Color(0.78, 0.22, 1.0)]
+	var difficulties: Array[DifficultyManager.Difficulty] = [DifficultyManager.Difficulty.EASY, DifficultyManager.Difficulty.MEDIUM, DifficultyManager.Difficulty.HARDCORE, DifficultyManager.Difficulty.NIGHTMARE]
+	var descriptions := ["3 lives", "2 lives", "No lives", "No lives"]
+	var loadouts := ["All weapons", "All weapons", "Knife + RPG", "Knife only / dark"]
+	var card_positions := [
+		Vector2(34.0, 100.0),
+		Vector2(314.0, 100.0),
+		Vector2(34.0, 224.0),
+		Vector2(314.0, 224.0)
+	]
 
-		var desc := Label.new()
-		desc.text = descriptions[i]
-		desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		desc.set_anchors_preset(Control.PRESET_CENTER_TOP)
-		desc.position = Vector2(-160, base_y + i * 90 + 44)
-		desc.size = Vector2(320, 26)
-		desc.add_theme_font_size_override("font_size", 13)
-		desc.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85))
-		difficulty_overlay.add_child(desc)
+	for i in range(button_labels.size()):
+		_create_difficulty_card(panel, card_positions[i], button_labels[i], descriptions[i], loadouts[i], button_colors[i], difficulties[i])
+
+func _create_difficulty_card(parent: Control, card_position: Vector2, title_text: String, detail_text: String, loadout_text: String, accent_color: Color, difficulty: DifficultyManager.Difficulty) -> void:
+	var card := Panel.new()
+	card.name = "%sCard" % title_text.capitalize()
+	card.position = card_position
+	card.size = Vector2(252.0, 96.0)
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
+	card.add_theme_stylebox_override("panel", _make_glass_style(Color(0.045, 0.07, 0.09, 0.84), accent_color.darkened(0.25), 9, 1))
+	parent.add_child(card)
+
+	var accent_bar := ColorRect.new()
+	accent_bar.name = "Accent"
+	accent_bar.position = Vector2(0.0, 0.0)
+	accent_bar.size = Vector2(5.0, 96.0)
+	accent_bar.color = accent_color
+	accent_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(accent_bar)
+
+	var title_label := Label.new()
+	title_label.name = "Title"
+	title_label.text = title_text
+	title_label.position = Vector2(18.0, 12.0)
+	title_label.size = Vector2(214.0, 28.0)
+	_style_bold_label(title_label, 20, accent_color.lightened(0.2))
+	card.add_child(title_label)
+
+	var detail_label := Label.new()
+	detail_label.name = "Detail"
+	detail_label.text = detail_text
+	detail_label.position = Vector2(18.0, 43.0)
+	detail_label.size = Vector2(214.0, 22.0)
+	_style_bold_label(detail_label, 14, Color(0.94, 0.98, 1.0))
+	card.add_child(detail_label)
+
+	var loadout_label := Label.new()
+	loadout_label.name = "Loadout"
+	loadout_label.text = loadout_text
+	loadout_label.position = Vector2(18.0, 66.0)
+	loadout_label.size = Vector2(214.0, 20.0)
+	_style_bold_label(loadout_label, 12, Color(0.66, 0.78, 0.84))
+	card.add_child(loadout_label)
+
+	var hit_button := Button.new()
+	hit_button.name = "HitButton"
+	hit_button.text = ""
+	hit_button.flat = true
+	hit_button.focus_mode = Control.FOCUS_NONE
+	hit_button.mouse_filter = Control.MOUSE_FILTER_STOP
+	hit_button.position = Vector2.ZERO
+	hit_button.size = card.size
+	hit_button.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	hit_button.pressed.connect(_on_difficulty_selected.bind(difficulty))
+	card.add_child(hit_button)
 
 func _on_difficulty_selected(d: DifficultyManager.Difficulty) -> void:
 	DifficultyManager.set_difficulty(d)
@@ -1019,7 +1294,6 @@ func _on_difficulty_selected(d: DifficultyManager.Difficulty) -> void:
 	_start_round_sequence()
 
 func _on_settings_pressed() -> void:
-	_play_ui_click_sound()
 	if shop_menu_ui:
 		shop_menu_ui.visible = false
 	if settings_menu_ui:
@@ -1027,7 +1301,6 @@ func _on_settings_pressed() -> void:
 	_show_coin_popup()
 
 func _on_credits_pressed() -> void:
-	_play_ui_click_sound()
 	OS.shell_open("https://x.com/monarchofct")
 
 func _play_loading_transition() -> void:
@@ -1161,11 +1434,15 @@ func _show_game_won() -> void:
 	_update_timer_label()
 	_save_winning_run_time(run_time)
 	player_has_won_once = true
+	_update_difficulty_win_progress(run_time)
 	_save_player_progress()
 	timer_label.visible = false
 	_stop_enemy_proximity_audio()
 	if background_music.playing:
 		background_music.stop()
+	if boss_music != null and boss_music.playing:
+		boss_music.stop()
+	_clear_boss_intro_overlay()
 	for portal_sound in exit_portal_sound_players:
 		if portal_sound.playing:
 			portal_sound.stop()
@@ -1191,6 +1468,258 @@ func _show_game_won() -> void:
 	color_rect.color = Color(0, 0, 0, 0)
 	_show_coin_popup()
 	get_tree().paused = true
+
+func _update_difficulty_win_progress(run_time: float) -> void:
+	var profile = _get_player_profile()
+	if profile == null:
+		return
+	match DifficultyManager.current_difficulty:
+		DifficultyManager.Difficulty.HARDCORE:
+			profile.won_hardcore = true
+		DifficultyManager.Difficulty.NIGHTMARE:
+			profile.won_nightmare = true
+	if run_time < 60.0:
+		profile.won_under_minute = true
+	if round_enemy_total > 0 and round_enemy_kills >= round_enemy_total:
+		profile.won_all_enemies = true
+
+func _connect_guard_death_signals() -> void:
+	var death_callable: Callable = Callable(self, "_on_guard_died")
+	round_enemy_total = 0
+	round_enemy_kills = 0
+	round_enemy_kill_ids.clear()
+	for enemy in get_tree().get_nodes_in_group("enemies"):
+		if not (enemy is Node):
+			continue
+		var enemy_node: Node = enemy as Node
+		if _is_round_enemy_for_unlock(enemy_node):
+			round_enemy_total += 1
+		if enemy_node.has_signal("died") and not enemy_node.is_connected("died", death_callable):
+			enemy_node.connect("died", death_callable)
+
+func _on_guard_died(enemy_node: Node) -> void:
+	_record_round_enemy_kill(enemy_node)
+	if boss_encounter_active or has_won or not is_alive:
+		return
+	if enemy_node == boss_node:
+		return
+	if boss_rng.randf() > TOM_CRUISE_BOSS_CHANCE:
+		return
+	call_deferred("_start_tom_cruise_boss_fight")
+
+func _record_round_enemy_kill(enemy_node: Node) -> void:
+	if not _is_round_enemy_for_unlock(enemy_node):
+		return
+	var enemy_id: int = enemy_node.get_instance_id()
+	if round_enemy_kill_ids.has(enemy_id):
+		return
+	round_enemy_kill_ids[enemy_id] = true
+	round_enemy_kills = mini(round_enemy_kills + 1, round_enemy_total)
+
+func _is_round_enemy_for_unlock(enemy_node: Node) -> bool:
+	if enemy_node == null:
+		return false
+	if enemy_node == boss_node:
+		return false
+	var enemy_name: String = String(enemy_node.name)
+	if enemy_name == "TomCruiseBoss" or enemy_name.begins_with("TomCruiseMiniGuard"):
+		return false
+	return enemy_node.is_in_group("enemies")
+
+func _start_tom_cruise_boss_fight() -> void:
+	if boss_encounter_active or boss_intro_active or has_won or not is_alive:
+		return
+
+	var player: Node3D = _get_player()
+	var world_environment: Node = get_node_or_null("WorldEnvironment")
+	if player == null or world_environment == null:
+		return
+
+	boss_encounter_active = true
+	boss_intro_active = true
+	round_timer_started = false
+	boss_room_origin = _get_tom_cruise_room_origin()
+	timer_label.text = "BOSS FIGHT"
+	damage_grace_active = true
+	_stop_enemy_proximity_audio()
+	if background_music != null and background_music.playing:
+		background_music.stop()
+	_play_boss_music()
+	await _play_boss_summon_intro()
+	if not is_alive or has_won:
+		return
+	_apply_boss_fight_lighting(boss_room_origin)
+	_apply_player_nightmare_flashlight(true)
+	_give_player_boss_p90()
+	_teleport_player_to_boss_room(player, boss_room_origin)
+	_spawn_tom_cruise_boss(world_environment, boss_room_origin, player)
+	if boss_ui:
+		boss_ui.visible = true
+	boss_intro_active = false
+	_start_damage_grace()
+
+func _play_boss_music() -> void:
+	if boss_music == null:
+		return
+	boss_music.stop()
+	boss_music.play(BOSS_MUSIC_START_SECONDS)
+
+func _play_boss_summon_intro() -> void:
+	color_rect.visible = true
+	color_rect.color = Color(0.0, 0.0, 0.0, 0.0)
+	if boss_summon_image != null:
+		boss_summon_image.visible = true
+		boss_summon_image.modulate = Color(1.0, 1.0, 1.0, 0.0)
+
+	var fade_tween: Tween = create_tween()
+	fade_tween.set_parallel(true)
+	fade_tween.tween_property(color_rect, "color:a", 1.0, BOSS_SUMMON_FADE_SECONDS)
+	if boss_summon_image != null:
+		fade_tween.tween_property(boss_summon_image, "modulate:a", 1.0, BOSS_SUMMON_FADE_SECONDS)
+	await fade_tween.finished
+
+	var wait_seconds: float = maxf(BOSS_FIGHT_START_MUSIC_SECONDS - BOSS_MUSIC_START_SECONDS - BOSS_SUMMON_FADE_SECONDS, 0.0)
+	if wait_seconds > 0.0:
+		await get_tree().create_timer(wait_seconds).timeout
+
+	if boss_summon_image != null:
+		boss_summon_image.visible = false
+		boss_summon_image.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	color_rect.visible = false
+	color_rect.color = Color(0.0, 0.0, 0.0, 0.0)
+
+func _clear_boss_intro_overlay() -> void:
+	boss_intro_active = false
+	if boss_summon_image != null:
+		boss_summon_image.visible = false
+		boss_summon_image.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	if color_rect != null:
+		color_rect.visible = false
+		color_rect.color = Color(0.0, 0.0, 0.0, 0.0)
+
+func _give_player_boss_p90() -> void:
+	var weapon_manager: Node = get_node_or_null("WorldEnvironment/CharacterBody3D/WeaponManager")
+	if weapon_manager == null or not weapon_manager.has_method("add_weapon"):
+		return
+	if bool(weapon_manager.call("add_weapon", TOM_CRUISE_BOSS_P90, true)):
+		return
+	var equipped_weapons: Array = weapon_manager.get("equipped_weapons") as Array
+	for weapon in equipped_weapons:
+		if weapon is WeaponResource and (weapon as WeaponResource).name == TOM_CRUISE_BOSS_P90.name:
+			weapon_manager.set("current_weapon", weapon)
+			return
+
+func _teleport_player_to_boss_room(player: Node3D, room_origin: Vector3) -> void:
+	player.global_position = room_origin + TOM_CRUISE_BOSS_PLAYER_OFFSET
+	if player is CharacterBody3D:
+		var character: CharacterBody3D = player as CharacterBody3D
+		character.velocity = Vector3.ZERO
+	player.look_at(room_origin, Vector3.UP)
+
+func _spawn_tom_cruise_boss(world_environment: Node, room_origin: Vector3, player: Node3D) -> void:
+	boss_node = TOM_CRUISE_BOSS_SCENE.instantiate() as Node3D
+	if boss_node == null:
+		boss_encounter_active = false
+		return
+
+	boss_node.name = "TomCruiseBoss"
+	boss_node.set("player_path", NodePath("../CharacterBody3D"))
+	world_environment.add_child(boss_node)
+	boss_node.global_position = room_origin + TOM_CRUISE_BOSS_SPAWN_OFFSET
+	boss_node.look_at(player.global_position, Vector3.UP)
+	boss_node.scale = Vector3(3.4, 3.4, 3.4)
+
+	if boss_node.has_signal("boss_health_changed"):
+		boss_node.connect("boss_health_changed", Callable(self, "_on_tom_cruise_boss_health_changed"))
+	if boss_node.has_signal("boss_defeated"):
+		boss_node.connect("boss_defeated", Callable(self, "_on_tom_cruise_boss_defeated"))
+	_on_tom_cruise_boss_health_changed(float(boss_node.get("health")), float(boss_node.get("boss_max_health")))
+
+func _on_tom_cruise_boss_health_changed(current_health: float, maximum_health: float) -> void:
+	if boss_health_bar == null or boss_health_label == null:
+		return
+	boss_health_bar.max_value = maximum_health
+	boss_health_bar.value = clampf(current_health, 0.0, maximum_health)
+	boss_health_label.text = "TOM CRUISE  %.0f / %.0f" % [current_health, maximum_health]
+
+func _on_tom_cruise_boss_defeated() -> void:
+	var profile = _get_player_profile()
+	if profile != null:
+		profile.won_tom_cruise = true
+		profile.save_profile()
+	_refresh_shop_menu()
+
+	boss_encounter_active = false
+	boss_node = null
+	if boss_ui:
+		boss_ui.visible = false
+	_clear_boss_fight_lighting()
+	_clear_boss_intro_overlay()
+	_apply_difficulty_world_lighting()
+	if boss_music != null and boss_music.playing:
+		boss_music.stop()
+	if is_alive and not has_won:
+		_show_game_won()
+
+func _apply_boss_fight_lighting(room_origin: Vector3) -> void:
+	_apply_nightmare_lighting()
+	_clear_boss_fight_lighting()
+	var light_parent: Node = get_node_or_null("WorldEnvironment")
+	if light_parent == null:
+		light_parent = self
+	boss_room_light = OmniLight3D.new()
+	boss_room_light.name = "TomCruiseBossRoomLight"
+	boss_room_light.light_color = Color(0.62, 0.86, 1.0, 1.0)
+	boss_room_light.light_energy = TOM_CRUISE_BOSS_LIGHT_ENERGY
+	boss_room_light.light_indirect_energy = 0.0
+	boss_room_light.light_volumetric_fog_energy = 0.12
+	boss_room_light.omni_range = TOM_CRUISE_BOSS_LIGHT_RANGE
+	light_parent.add_child(boss_room_light)
+	boss_room_light.global_position = room_origin + TOM_CRUISE_BOSS_LIGHT_OFFSET
+
+func _clear_boss_fight_lighting() -> void:
+	if boss_room_light != null and is_instance_valid(boss_room_light):
+		boss_room_light.queue_free()
+	boss_room_light = null
+
+func _get_tom_cruise_room_origin() -> Vector3:
+	var enemy9_node: Node = _find_node_by_name(self, "enemy9")
+	if enemy9_node is Node3D:
+		var enemy9_node_3d: Node3D = enemy9_node as Node3D
+		return enemy9_node_3d.global_position
+
+	var highest_enemy_node: Node3D = _find_highest_numbered_enemy_node()
+	if highest_enemy_node != null:
+		return highest_enemy_node.global_position
+
+	var player: Node3D = _get_player()
+	if player != null:
+		return player.global_position + (-player.global_basis.z * 10.0)
+	return global_position
+
+func _find_highest_numbered_enemy_node() -> Node3D:
+	var best_enemy: Node3D = null
+	var best_number: int = -1
+	for enemy in get_tree().get_nodes_in_group("enemies"):
+		if not (enemy is Node3D):
+			continue
+		var enemy_node: Node3D = enemy as Node3D
+		var enemy_number: int = _get_enemy_node_number(enemy_node.name)
+		if enemy_number > best_number:
+			best_number = enemy_number
+			best_enemy = enemy_node
+	return best_enemy
+
+func _get_enemy_node_number(enemy_name: StringName) -> int:
+	var lower_name: String = String(enemy_name).to_lower()
+	if lower_name == "enemy":
+		return 0
+	if not lower_name.begins_with("enemy"):
+		return -1
+	var number_text: String = lower_name.substr(5)
+	if not number_text.is_valid_int():
+		return -1
+	return int(number_text)
 
 func _create_death_sound_player() -> void:
 	death_sound = AudioStreamPlayer.new()
@@ -1238,6 +1767,16 @@ func _create_winning_music_player() -> void:
 		winning_music.stream.loop = false
 	winning_music.volume_db = 0.0
 	add_child(winning_music)
+
+func _create_boss_music_player() -> void:
+	boss_music = AudioStreamPlayer.new()
+	boss_music.name = "BossMusic"
+	boss_music.process_mode = Node.PROCESS_MODE_ALWAYS
+	boss_music.stream = load(BOSS_MUSIC_PATH)
+	if boss_music.stream is AudioStreamMP3:
+		boss_music.stream.loop = true
+	boss_music.volume_db = -3.0
+	add_child(boss_music)
 
 func _create_ui_click_sound_player() -> void:
 	ui_click_sound = AudioStreamPlayer.new()
@@ -1288,6 +1827,9 @@ func _start_round_sequence() -> void:
 	if round_started:
 		return
 
+	_apply_difficulty_loadout()
+	_apply_difficulty_world_lighting()
+
 	# Set lives based on difficulty
 	lives_remaining = DifficultyManager.get_lives()
 	_create_lives_label()
@@ -1306,6 +1848,111 @@ func _start_round_sequence() -> void:
 		await timer_delay.timeout
 	round_timer_started = true
 	_update_timer_label()
+
+func _apply_difficulty_loadout() -> void:
+	var weapon_manager: Node = get_node_or_null("WorldEnvironment/CharacterBody3D/WeaponManager")
+	if weapon_manager == null or not weapon_manager.has_method("apply_named_loadout"):
+		return
+
+	var weapon_names := PackedStringArray()
+	match DifficultyManager.current_difficulty:
+		DifficultyManager.Difficulty.HARDCORE:
+			weapon_names = PackedStringArray(["Knife", "RPG"])
+		DifficultyManager.Difficulty.NIGHTMARE:
+			weapon_names = PackedStringArray(["Knife"])
+		_:
+			weapon_names = PackedStringArray()
+
+	weapon_manager.call("apply_named_loadout", weapon_names)
+
+func _apply_difficulty_world_lighting() -> void:
+	var nightmare_active: bool = DifficultyManager.current_difficulty == DifficultyManager.Difficulty.NIGHTMARE
+	_apply_player_nightmare_flashlight(nightmare_active)
+	if nightmare_active:
+		_apply_nightmare_lighting()
+	else:
+		_restore_normal_lighting()
+	_set_enemy_nightmare_lights(nightmare_active)
+
+func _apply_player_nightmare_flashlight(enabled: bool) -> void:
+	var player: Node3D = _get_player()
+	if player != null and player.has_method("set_nightmare_mode_enabled"):
+		player.call("set_nightmare_mode_enabled", enabled)
+
+func _apply_nightmare_lighting() -> void:
+	var world_environment: WorldEnvironment = get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if world_environment != null and world_environment.environment != null:
+		if not world_environment.has_meta(NIGHTMARE_ORIGINAL_ENVIRONMENT_META):
+			world_environment.set_meta(NIGHTMARE_ORIGINAL_ENVIRONMENT_META, world_environment.environment.duplicate(true))
+			world_environment.environment = world_environment.environment.duplicate(true)
+		var environment: Environment = world_environment.environment
+		environment.background_energy_multiplier = 0.04
+		environment.ambient_light_color = Color(0.015, 0.02, 0.045)
+		environment.ambient_light_energy = 0.025
+		environment.ambient_light_sky_contribution = 0.0
+
+	for light_node in get_tree().current_scene.find_children("*", "Light3D", true, false):
+		var light: Light3D = light_node as Light3D
+		if light == null:
+			continue
+		if not light.has_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META):
+			light.set_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META, light.visible)
+			light.set_meta(NIGHTMARE_ORIGINAL_LIGHT_ENERGY_META, light.light_energy)
+			light.set_meta(NIGHTMARE_ORIGINAL_LIGHT_INDIRECT_META, light.light_indirect_energy)
+			light.set_meta(NIGHTMARE_ORIGINAL_LIGHT_VOLUMETRIC_META, light.light_volumetric_fog_energy)
+		if _is_nightmare_light_exempt(light):
+			light.visible = true
+			continue
+		light.visible = true
+		light.light_energy = float(light.get_meta(NIGHTMARE_ORIGINAL_LIGHT_ENERGY_META)) * NIGHTMARE_LIGHT_ENERGY_MULTIPLIER
+		light.light_indirect_energy = 0.0
+		light.light_volumetric_fog_energy = 0.0
+
+	for gi_node in get_tree().current_scene.find_children("*", "LightmapGI", true, false):
+		var lightmap_gi: LightmapGI = gi_node as LightmapGI
+		if lightmap_gi == null:
+			continue
+		if not lightmap_gi.has_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META):
+			lightmap_gi.set_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META, lightmap_gi.visible)
+		lightmap_gi.visible = false
+
+func _is_nightmare_light_exempt(light: Light3D) -> bool:
+	var light_name: String = String(light.name).to_lower()
+	return light_name == "nightmareflashlight" or light_name == "nightmarefilllight" or light_name == "nightmare mode"
+
+func _set_enemy_nightmare_lights(enabled: bool) -> void:
+	for light_node in get_tree().current_scene.find_children("nightmare mode", "Light3D", true, false):
+		var light: Light3D = light_node as Light3D
+		if light != null:
+			light.visible = enabled
+
+func _restore_normal_lighting() -> void:
+	var world_environment: WorldEnvironment = get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if world_environment != null and world_environment.has_meta(NIGHTMARE_ORIGINAL_ENVIRONMENT_META):
+		var original_environment: Environment = world_environment.get_meta(NIGHTMARE_ORIGINAL_ENVIRONMENT_META) as Environment
+		if original_environment != null:
+			world_environment.environment = original_environment.duplicate(true)
+		world_environment.remove_meta(NIGHTMARE_ORIGINAL_ENVIRONMENT_META)
+
+	for light_node in get_tree().current_scene.find_children("*", "Light3D", true, false):
+		var light: Light3D = light_node as Light3D
+		if light == null or not light.has_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META):
+			continue
+		light.visible = bool(light.get_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META))
+		light.light_energy = float(light.get_meta(NIGHTMARE_ORIGINAL_LIGHT_ENERGY_META))
+		light.light_indirect_energy = float(light.get_meta(NIGHTMARE_ORIGINAL_LIGHT_INDIRECT_META))
+		light.light_volumetric_fog_energy = float(light.get_meta(NIGHTMARE_ORIGINAL_LIGHT_VOLUMETRIC_META))
+		light.remove_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META)
+		light.remove_meta(NIGHTMARE_ORIGINAL_LIGHT_ENERGY_META)
+		light.remove_meta(NIGHTMARE_ORIGINAL_LIGHT_INDIRECT_META)
+		light.remove_meta(NIGHTMARE_ORIGINAL_LIGHT_VOLUMETRIC_META)
+
+	for gi_node in get_tree().current_scene.find_children("*", "LightmapGI", true, false):
+		var lightmap_gi: LightmapGI = gi_node as LightmapGI
+		if lightmap_gi == null or not lightmap_gi.has_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META):
+			continue
+		lightmap_gi.visible = bool(lightmap_gi.get_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META))
+		lightmap_gi.remove_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META)
 
 func _start_damage_grace() -> void:
 	damage_grace_active = true
@@ -1524,7 +2171,7 @@ func _connect_coin(coin: Node) -> void:
 
 func _on_coin_picked_up() -> void:
 	coins_collected = clampi(coins_collected + 1, 0, COIN_STATE_COUNT - 1)
-	var profile := _get_player_profile()
+	var profile = _get_player_profile()
 	if profile:
 		profile.add_coins(1)
 	_refresh_shop_menu()
@@ -1565,8 +2212,8 @@ func _create_exit_portal_sound(exit_center: Vector3) -> void:
 	if portal_sound.stream is AudioStreamMP3:
 		portal_sound.stream.loop = false
 	portal_sound.volume_db = END_PORTAL_VOLUME_DB
-	portal_sound.max_distance = 80.0
-	portal_sound.unit_size = 8.0
+	portal_sound.max_distance = END_PORTAL_MAX_DISTANCE
+	portal_sound.unit_size = END_PORTAL_UNIT_SIZE
 	portal_sound.autoplay = false
 	add_child(portal_sound)
 	portal_sound.global_position = exit_center
@@ -1750,7 +2397,7 @@ func _set_game_over_ui_input_enabled(enabled: bool) -> void:
 
 func _load_player_progress() -> void:
 	player_has_won_once = false
-	var profile := _get_player_profile()
+	var profile = _get_player_profile()
 	if profile:
 		player_has_won_once = profile.won_once
 		return
@@ -1766,7 +2413,7 @@ func _load_player_progress() -> void:
 	player_has_won_once = save_text.find("won_once=true") != -1
 
 func _save_player_progress() -> void:
-	var profile := _get_player_profile()
+	var profile = _get_player_profile()
 	if profile:
 		profile.won_once = player_has_won_once
 		profile.save_profile()

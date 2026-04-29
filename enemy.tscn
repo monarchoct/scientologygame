@@ -7,6 +7,10 @@
 radius = 0.2607422
 height = 0.8709717
 
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_bullet_hitbox"]
+radius = 0.75
+height = 2.3
+
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_epg4t"]
 transparency = 2
 alpha_scissor_threshold = 0.1
@@ -25,7 +29,25 @@ script = ExtResource("1_4gyqm")
 transform = Transform3D(0.20244056, 0, 0, 0, 0.18383008, 0, 0, 0, 0.16193482, 0, -0.39595777, 0)
 shape = SubResource("CapsuleShape3D_iifgy")
 
+[node name="BulletHitbox" type="Area3D" parent="." unique_id=289524079]
+collision_layer = 256
+collision_mask = 0
+monitorable = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="BulletHitbox" unique_id=701129626]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.55, 0)
+shape = SubResource("CapsuleShape3D_bullet_hitbox")
+
 [node name="NavigationAgent3D" type="NavigationAgent3D" parent="." unique_id=1900057005]
+
+[node name="nightmare mode" type="OmniLight3D" parent="."]
+visible = false
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.85, 0)
+light_color = Color(1, 0.08, 0.02, 1)
+light_energy = 2.2
+light_indirect_energy = 0.0
+light_volumetric_fog_energy = 0.0
+omni_range = 4.0
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1422589530]
 transform = Transform3D(2.195, 0, 0, 0, 2.194985, -0.008121697, 0, 0.008121697, 2.194985, 0, 0.5490393, 0)

@@ -1,0 +1,27 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://enemy_effect.gd" id="1_ydw1k"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_death"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 0.32, 0.02, 0.95)
+
+[sub_resource type="SphereMesh" id="SphereMesh_death"]
+material = SubResource("StandardMaterial3D_death")
+radius = 0.45
+height = 0.9
+radial_segments = 16
+rings = 8
+
+[node name="EnemyDeathEffect" type="Node3D"]
+script = ExtResource("1_ydw1k")
+lifetime = 0.55
+start_scale = Vector3(0.55, 0.55, 0.55)
+end_scale = Vector3(2.6, 2.6, 2.6)
+start_color = Color(1, 0.22, 0.02, 0.95)
+end_color = Color(0.25, 0.25, 0.25, 0)
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_death")
+material_override = SubResource("StandardMaterial3D_death")

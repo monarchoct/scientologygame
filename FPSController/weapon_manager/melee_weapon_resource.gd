@@ -26,13 +26,15 @@ func fire_shot():
 		if obj is RigidBody3D:
 			obj.apply_impulse(-nrml * 5.0 / obj.mass, pt - obj.global_position)
 		
-		if obj.has_method("take_backstab_damage") and raycast_dir.dot(-obj.global_basis.z) > 0.4 and (obj.global_transform.affine_inverse() * raycast.global_position).z > 0.0:
-			obj.take_backstab_damage(self.damage)
+		var damage_target: Object = _get_damage_target(obj)
+		var damage_target_node: Node3D = damage_target as Node3D
+		if damage_target_node != null and damage_target.has_method("take_backstab_damage") and raycast_dir.dot(-damage_target_node.global_basis.z) > 0.4 and (damage_target_node.global_transform.affine_inverse() * raycast.global_position).z > 0.0:
+			damage_target.take_backstab_damage(self.damage, pt, nrml)
 			var blood_splatter = preload("res://FPSController/weapon_manager/knife/blood_splatter.tscn").instantiate()
-			obj.add_sibling(blood_splatter)
+			damage_target_node.add_sibling(blood_splatter)
 			blood_splatter.global_position = pt
-		elif obj.has_method("take_damage"):
-			obj.take_damage(self.damage)
+		elif damage_target.has_method("take_damage"):
+			damage_target.take_damage(self.damage, pt, nrml)
 	else:
 		weapon_manager.play_sound(miss_sound)
 	

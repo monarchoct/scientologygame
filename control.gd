@@ -29,8 +29,6 @@ func _on_try_pressed() -> void:
 
 
 func _on_main_pressed() -> void:
-	await _play_ui_click_sound()
-
 	# unpause
 	get_tree().paused = false
 	

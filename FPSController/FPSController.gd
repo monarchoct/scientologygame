@@ -19,6 +19,9 @@ signal player_hit
 @export var ground_accel := 20
 @export var ground_decel := 2
 @export var ground_friction := 5
+@export var slide_boost := 3.0
+@export var slide_accel := 10.0
+@export var slide_duration := 0.25
 
 # Air movement settings. Need to tweak these to get the feeling dialed in.
 @export var air_cap := 6 # Can surf steeper ramps if this is higher, makes it easier to stick and bhop
@@ -47,8 +50,12 @@ var wish_dir := Vector3.ZERO
 var cam_aligned_wish_dir := Vector3.ZERO
 
 const CROUCH_TRANSLATE = 0.7
+const SLIDE_CAMERA_TRANSLATE = 0.95
 const CROUCH_JUMP_ADD = CROUCH_TRANSLATE * 0.9 # * 0.9 for sourcelike camera jitter in air on crouch, makes for a nice notifier
 var is_crouched := false
+var slide_time_left := 0.0
+var slide_dir := Vector3.ZERO
+var slide_requires_release := false
 
 var noclip_speed_mult := 3.0
 var noclip := false
@@ -62,16 +69,57 @@ const WORLD_MODEL_LAYER = 2
 
 
 func get_move_speed() -> float:
+	if is_sliding():
+		return max(sprint_speed, (velocity * Vector3(1, 0, 1)).length())
 	if is_crouched:
 		return walk_speed * 0.6
 	return sprint_speed if Input.is_action_pressed("sprint") else walk_speed
+
+func is_sliding() -> bool:
+	return slide_time_left > 0.0
 
 func _ready():
 	var player_profile := get_node_or_null("/root/PlayerProfile")
 	if player_profile:
 		look_sensitivity = float(player_profile.get("mouse_sensitivity"))
+	_update_nightmare_flashlight()
 	update_view_and_world_model_masks()
 	_update_camera()
+
+func set_nightmare_mode_enabled(enabled: bool) -> void:
+	_update_nightmare_flashlight(enabled)
+
+func _update_nightmare_flashlight(force_enabled: Variant = null) -> void:
+	var camera: Camera3D = get_node_or_null("HeadOriginalPosition/Head/CameraSmooth/Camera3D") as Camera3D
+	if camera == null:
+		return
+	var flashlight: Light3D = camera.get_node_or_null("NightmareFlashlight") as Light3D
+	if flashlight == null:
+		return
+
+	var enabled: bool = false
+	if force_enabled is bool:
+		enabled = force_enabled
+	elif get_node_or_null("/root/DifficultyManager") != null:
+		enabled = DifficultyManager.current_difficulty == DifficultyManager.Difficulty.NIGHTMARE
+	flashlight.visible = enabled
+	flashlight.light_energy = 17.0
+	if flashlight is SpotLight3D:
+		var spotlight := flashlight as SpotLight3D
+		spotlight.spot_range = 116.0
+		spotlight.spot_angle = 34.0
+
+	var fill_light: OmniLight3D = camera.get_node_or_null("NightmareFillLight") as OmniLight3D
+	if fill_light == null:
+		fill_light = OmniLight3D.new()
+		fill_light.name = "NightmareFillLight"
+		fill_light.light_color = Color(0.55, 0.68, 1.0, 1.0)
+		fill_light.light_indirect_energy = 0.0
+		fill_light.light_volumetric_fog_energy = 0.0
+		fill_light.omni_range = 5.5
+		camera.add_child(fill_light)
+	fill_light.visible = enabled
+	fill_light.light_energy = 0.85
 
 func update_view_and_world_model_masks():
 	for child in %WorldModel.find_children("*", "VisualInstance3D", true, false):
@@ -182,7 +230,7 @@ func _handle_controller_look_input(delta):
 func update_animations():
 	animation_tree.is_crouched = is_crouched
 	animation_tree.is_in_air = noclip or (not is_on_floor() and not _snapped_to_stairs_last_frame)
-	animation_tree.is_sprinting = Input.is_action_pressed("sprint")
+	animation_tree.is_sprinting = Input.is_action_pressed("sprint") or is_sliding()
 	
 	var rel_vel = self.global_basis.inverse() * ((self.velocity * Vector3(1,0,1)) / get_move_speed())
 	var rel_vel_xz = Vector2(rel_vel.x, -rel_vel.z)
@@ -212,10 +260,9 @@ func _process(delta):
 
 func get_interactable_component_at_shapecast() -> InteractableComponent:
 	for i in %InteractShapeCast3D.get_collision_count():
-		# Allow colliding with player
-		if i > 0 and %InteractShapeCast3D.get_collider(0) != $".":
-			return null
 		var collider = %InteractShapeCast3D.get_collider(i)
+		if collider == $".":
+			continue
 		if collider and collider.get_node_or_null("InteractableComponent") is InteractableComponent:
 			return collider.get_node_or_null("InteractableComponent")
 	return null
@@ -228,7 +275,7 @@ func _save_camera_pos_for_smoothing():
 func _slide_camera_smooth_back_to_origin(delta):
 	if _saved_camera_global_pos == null: return
 	%CameraSmooth.global_position.y = _saved_camera_global_pos.y
-	%CameraSmooth.position.y = clampf(%CameraSmooth.position.y, -CROUCH_TRANSLATE, CROUCH_TRANSLATE) # Clamp incase teleported
+	%CameraSmooth.position.y = clampf(%CameraSmooth.position.y, -SLIDE_CAMERA_TRANSLATE, SLIDE_CAMERA_TRANSLATE) # Clamp incase teleported
 	var move_amount = max(self.velocity.length() * delta, walk_speed/2 * delta)
 	%CameraSmooth.position.y = move_toward(%CameraSmooth.position.y, 0.0, move_amount)
 	_saved_camera_global_pos = %CameraSmooth.global_position
@@ -393,10 +440,16 @@ func _handle_water_physics(delta) -> bool:
 @onready var _original_capsule_height = $CollisionShape3D.shape.height
 func _handle_crouch(delta) -> void:
 	var was_crouched_last_frame = is_crouched
+	if not Input.is_action_pressed("crouch"):
+		slide_requires_release = false
+	if Input.is_action_just_pressed("crouch"):
+		_try_start_slide()
 	if Input.is_action_pressed("crouch"):
 		is_crouched = true
 	elif is_crouched and not self.test_move(self.global_transform, Vector3(0,CROUCH_TRANSLATE,0)):
 		is_crouched = false
+	if not is_crouched or not is_on_floor():
+		slide_time_left = 0.0
 	
 	# Allow for crouch to heighten/extend a jump
 	var translate_y_if_possible := 0.0
@@ -408,9 +461,10 @@ func _handle_crouch(delta) -> void:
 		self.test_move(self.global_transform, Vector3(0,translate_y_if_possible,0), result)
 		self.position.y += result.get_travel().y
 		%Head.position.y -= result.get_travel().y
-		%Head.position.y = clampf(%Head.position.y, -CROUCH_TRANSLATE, 0)
+		%Head.position.y = clampf(%Head.position.y, -SLIDE_CAMERA_TRANSLATE, 0)
 	
-	%Head.position.y = move_toward(%Head.position.y, -CROUCH_TRANSLATE if is_crouched else 0.0, 7.0 * delta)
+	var target_head_y := -SLIDE_CAMERA_TRANSLATE if is_sliding() else (-CROUCH_TRANSLATE if is_crouched else 0.0)
+	%Head.position.y = move_toward(%Head.position.y, target_head_y, 7.0 * delta)
 	$CollisionShape3D.shape.height = _original_capsule_height - CROUCH_TRANSLATE if is_crouched else _original_capsule_height
 	$CollisionShape3D.position.y = $CollisionShape3D.shape.height / 2
 	# Visual for tutorial
@@ -418,6 +472,34 @@ func _handle_crouch(delta) -> void:
 	#$WorldModel/MeshInstance3D.position.y = $CollisionShape3D.position.y
 	#$WorldModel/WigglyHair.position.y = $CollisionShape3D.shape.height - 0.302
 	#$"WorldModel/disguise-glasses".position.y = $CollisionShape3D.shape.height - 0.9
+
+func _try_start_slide() -> void:
+	if slide_requires_release:
+		return
+	if not is_on_floor() and not _snapped_to_stairs_last_frame:
+		return
+
+	var horizontal_velocity := velocity * Vector3(1, 0, 1)
+	if horizontal_velocity.length() < walk_speed * 0.8:
+		return
+
+	slide_dir = horizontal_velocity.normalized()
+	if slide_dir == Vector3.ZERO and wish_dir.length() > 0.0:
+		slide_dir = wish_dir.normalized()
+	slide_time_left = slide_duration
+	slide_requires_release = true
+	velocity += slide_dir * slide_boost
+
+func _apply_slide(delta: float) -> void:
+	if not is_sliding():
+		return
+
+	slide_time_left = max(0.0, slide_time_left - delta)
+	if slide_dir == Vector3.ZERO:
+		slide_time_left = 0.0
+		return
+
+	velocity += slide_dir * slide_accel * delta
 
 func _handle_noclip(delta) -> bool:
 	if Input.is_action_just_pressed("_noclip") and OS.has_feature("debug"):
@@ -496,6 +578,11 @@ func _handle_air_physics(delta) -> void:
 		clip_velocity(wall_normal, 1, delta) # Allows surf
 
 func _handle_ground_physics(delta) -> void:
+	if is_sliding():
+		_apply_slide(delta)
+		_headbob_effect(delta)
+		return
+
 	# Similar to the air movement. Acceleration and friction on ground.
 	var cur_speed_in_wish_dir = self.velocity.dot(wish_dir)
 	var add_speed_till_cap = get_move_speed() - cur_speed_in_wish_dir
@@ -531,9 +618,14 @@ func _physics_process(delta):
 	if not _handle_noclip(delta) and not _handle_ladder_physics():
 		if not _handle_water_physics(delta):
 			if is_on_floor() or _snapped_to_stairs_last_frame:
+				var jumped_this_frame := false
 				if Input.is_action_just_pressed("jump") or (auto_bhop and Input.is_action_pressed("jump")):
 					self.velocity.y = jump_velocity
-				_handle_ground_physics(delta)
+					jumped_this_frame = true
+				if jumped_this_frame:
+					_handle_air_physics(delta)
+				else:
+					_handle_ground_physics(delta)
 			else:
 				_handle_air_physics(delta)
 		

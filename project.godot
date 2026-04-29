@@ -124,6 +124,11 @@ reload={
 ]
 }
 
+[layer_names]
+
+3d_physics/layer_8="weapon_scan"
+3d_physics/layer_9="enemy_hitbox"
+
 [physics]
 
 3d/physics_engine="GodotPhysics3D"

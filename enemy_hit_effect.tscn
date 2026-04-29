@@ -1,0 +1,37 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://enemy_effect.gd" id="1_b1ven"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_hit"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(1, 0.08, 0.02, 0.85)
+
+[sub_resource type="SphereMesh" id="SphereMesh_hit"]
+material = SubResource("StandardMaterial3D_hit")
+radius = 0.26
+height = 0.52
+radial_segments = 16
+rings = 8
+
+[node name="EnemyHitEffect" type="Node3D"]
+script = ExtResource("1_b1ven")
+lifetime = 0.32
+start_scale = Vector3(0.3, 0.3, 0.3)
+end_scale = Vector3(1.55, 1.55, 1.55)
+start_color = Color(1, 0.02, 0.01, 1)
+end_color = Color(1, 0.65, 0.08, 0)
+burst_particle_count = 9
+burst_particle_size = 0.055
+burst_particle_speed = 4.0
+burst_particle_spread = 0.85
+light_energy_start = 2.3
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("SphereMesh_hit")
+material_override = SubResource("StandardMaterial3D_hit")
+
+[node name="OmniLight3D" type="OmniLight3D" parent="."]
+light_color = Color(1, 0.12, 0.04, 1)
+light_energy = 2.3
+omni_range = 3.0

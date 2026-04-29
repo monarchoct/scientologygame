@@ -7,12 +7,7 @@
 render_priority = 10
 transparency = 1
 shading_mode = 0
-albedo_color = Color(1, 1, 1, 1)
 albedo_texture = ExtResource("2_v7riw")
-emission_enabled = true
-emission = Color(1, 1, 1, 1)
-emission_energy_multiplier = 2.0
-emission_texture = ExtResource("2_v7riw")
 billboard_mode = 1
 billboard_keep_scale = true
 
@@ -33,3 +28,7 @@ mesh = SubResource("QuadMesh_w14il")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="." unique_id=1694827158]
 shape = SubResource("CapsuleShape3D_h4etq")
+
+[node name="OmniLight3D" type="OmniLight3D" parent="." unique_id=238609715]
+light_color = Color(0, 0.9711656, 0.9755078, 1)
+light_energy = 2.0
