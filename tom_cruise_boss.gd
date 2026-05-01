@@ -16,12 +16,15 @@ const MINI_GUARD_SCENE: PackedScene = preload("res://enemy2.tscn")
 @export var minion_speed_multiplier: float = 1.35
 @export var minion_speed_growth_per_second: float = 0.025
 @export var max_minion_speed_multiplier: float = 3.0
+@export var minion_spawn_player_clearance: float = 4.5
 
 var slam_cooldown_left: float = 1.2
 var melee_cooldown_left: float = 0.0
 var minion_spawn_cooldown_left: float = 3.0
 var fight_time_seconds: float = 0.0
 var live_minions: Array[Node] = []
+var minion_spawn_origin: Vector3 = Vector3.ZERO
+var minion_spawn_origin_set: bool = false
 
 func _ready() -> void:
 	max_health = boss_max_health
@@ -97,8 +100,32 @@ func _spawn_mini_guards() -> void:
 			minion.set("SPEED", float(minion.get("SPEED")) * _get_current_minion_speed_multiplier())
 		var angle: float = (TAU / float(spawn_count)) * float(index) + randf_range(-0.35, 0.35)
 		var offset: Vector3 = Vector3(cos(angle), 0.0, sin(angle)) * randf_range(4.0, 6.0)
-		minion.global_position = global_position + offset
+		var spawn_position: Vector3 = _get_minion_spawn_center() + offset
+		minion.global_position = _push_spawn_position_away_from_player(spawn_position)
 		live_minions.append(minion)
+
+func _get_minion_spawn_center() -> Vector3:
+	if minion_spawn_origin_set:
+		return minion_spawn_origin
+	return global_position
+
+func _push_spawn_position_away_from_player(spawn_position: Vector3) -> Vector3:
+	if player == null:
+		return spawn_position
+	var player_position: Vector3 = player.global_position
+	var offset_from_player: Vector3 = spawn_position - player_position
+	offset_from_player.y = 0.0
+	var distance: float = offset_from_player.length()
+	if distance >= minion_spawn_player_clearance:
+		return spawn_position
+	if distance < 0.01:
+		offset_from_player = spawn_position - _get_minion_spawn_center()
+		offset_from_player.y = 0.0
+	if offset_from_player.length_squared() < 0.01:
+		offset_from_player = Vector3.FORWARD
+	var cleared_position: Vector3 = player_position + offset_from_player.normalized() * minion_spawn_player_clearance
+	cleared_position.y = spawn_position.y
+	return cleared_position
 
 func _prune_minions() -> void:
 	for index in range(live_minions.size() - 1, -1, -1):

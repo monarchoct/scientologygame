@@ -15,9 +15,6 @@ const BASE_SPEED: float = 15.0
 var SPEED: float = BASE_SPEED
 const ATTACK_RANGE: float = 1.5
 const STUN_DURATION: float = 2.0
-const SPACING_FORCE_MULTIPLIER: float = 0.35
-const SPACING_MAX_SPEED_RATIO: float = 0.45
-const CHASE_ACCELERATION_MULTIPLIER: float = 8.0
 
 @export var player_path: NodePath
 @export var aggro_range: float = 50.0
@@ -65,12 +62,13 @@ func _physics_process(delta: float) -> void:
 		var current_location: Vector3 = global_transform.origin
 		var next_location: Vector3 = nav_agent.get_next_path_position()
 
-		var chase_direction: Vector3 = (next_location - current_location).normalized()
-		var new_velocity: Vector3 = chase_direction * SPEED
-		new_velocity += _get_enemy_spacing_velocity(chase_direction)
-		velocity = velocity.move_toward(new_velocity, SPEED * CHASE_ACCELERATION_MULTIPLIER * delta)
+		var new_velocity: Vector3 = (next_location - current_location).normalized() * SPEED
+		new_velocity += _get_enemy_spacing_velocity()
+		velocity = velocity.move_toward(new_velocity, 0.25)
 
 		move_and_slide()
+
+		_apply_enemy_spacing()
 
 	if _player_in_aggro_range() and _target_in_range():
 		hit_finished()
@@ -78,7 +76,7 @@ func _physics_process(delta: float) -> void:
 func _player_in_aggro_range() -> bool:
 	return player != null and global_position.distance_to(player.global_position) <= aggro_range
 
-func _get_enemy_spacing_velocity(chase_direction: Vector3 = Vector3.ZERO) -> Vector3:
+func _get_enemy_spacing_velocity() -> Vector3:
 	var spacing_velocity: Vector3 = Vector3.ZERO
 	for enemy in get_tree().get_nodes_in_group("enemies"):
 		if enemy == self or not (enemy is Node3D):
@@ -93,12 +91,7 @@ func _get_enemy_spacing_velocity(chase_direction: Vector3 = Vector3.ZERO) -> Vec
 				offset = Vector3(cos(angle), 0.0, sin(angle))
 				distance = 0.001
 			var strength: float = (min_enemy_distance - distance) / min_enemy_distance
-			spacing_velocity += offset.normalized() * SPEED * strength * SPACING_FORCE_MULTIPLIER
-	if chase_direction.length_squared() > 0.001 and spacing_velocity.dot(chase_direction) < 0.0:
-		spacing_velocity -= chase_direction * spacing_velocity.dot(chase_direction)
-	var max_spacing_speed: float = SPEED * SPACING_MAX_SPEED_RATIO
-	if spacing_velocity.length() > max_spacing_speed:
-		spacing_velocity = spacing_velocity.normalized() * max_spacing_speed
+			spacing_velocity += offset.normalized() * SPEED * strength
 	return spacing_velocity
 
 func _apply_enemy_spacing() -> void:

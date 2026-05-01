@@ -29,6 +29,7 @@ const EXIT_WIN_ARM_DELAY_SECONDS : float = 0.5
 const WINNING_MUSIC_PATH : String = "res://FPSController/weapon_manager/player_hud/winning.mp3"
 const WIN_FADE_DURATION : float = 5.0
 const START_DAMAGE_GRACE_SECONDS : float = 1.0
+const BOSS_TELEPORT_DAMAGE_GRACE_SECONDS : float = 5.0
 const PLAYER_DAMAGE_ENABLED : bool = true
 const COIN_POPUP_TEXTURE_PATH : String = "res://scientology_coin_popup.png"
 const COIN_POPUP_SIZE : Vector2 = Vector2(272.0, 153.0)
@@ -101,6 +102,7 @@ var exit_portal_sound_played : bool = false
 var has_won : bool = false
 var player_has_won_once : bool = false
 var damage_grace_active : bool = false
+var damage_grace_token : int = 0
 var lives_remaining : int = 1
 var lives_label : Label
 var difficulty_overlay : Control = null
@@ -231,9 +233,7 @@ func _on_player_player_hit() -> void:
 	if lives_remaining > 0:
 		# Player has lives left — flash red and give brief grace period
 		_show_flash()
-		damage_grace_active = true
-		await get_tree().create_timer(START_DAMAGE_GRACE_SECONDS * 3.0).timeout
-		damage_grace_active = false
+		await _start_damage_grace(START_DAMAGE_GRACE_SECONDS * 3.0)
 		return
 
 	# No lives left — game over
@@ -808,6 +808,7 @@ func _on_settings_back_pressed() -> void:
 	settings_menu_ui.visible = false
 	if main_menu_ui:
 		main_menu_ui.visible = true
+	_hide_coin_popup()
 
 func _on_shop_pressed() -> void:
 	_hide_coin_popup()
@@ -824,7 +825,7 @@ func _on_shop_back_pressed() -> void:
 		shop_menu_ui.visible = false
 	if main_menu_ui:
 		main_menu_ui.visible = true
-	_show_coin_popup()
+	_hide_coin_popup()
 
 func _refresh_shop_menu() -> void:
 	var profile = _get_player_profile()
@@ -1074,7 +1075,7 @@ func _show_main_menu() -> void:
 	main_menu_ui.visible = true
 	_refresh_shop_menu()
 	ui_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_show_coin_popup()
+	_hide_coin_popup()
 
 func _toggle_pause_menu() -> void:
 	if pause_menu_ui == null:
@@ -1165,6 +1166,7 @@ func _on_play_pressed() -> void:
 
 
 func _show_difficulty_overlay() -> void:
+	_hide_coin_popup()
 	if difficulty_overlay != null:
 		difficulty_overlay.visible = true
 		return
@@ -1298,7 +1300,7 @@ func _on_settings_pressed() -> void:
 		shop_menu_ui.visible = false
 	if settings_menu_ui:
 		settings_menu_ui.visible = true
-	_show_coin_popup()
+	_hide_coin_popup()
 
 func _on_credits_pressed() -> void:
 	OS.shell_open("https://x.com/monarchofct")
@@ -1306,7 +1308,7 @@ func _on_credits_pressed() -> void:
 func _play_loading_transition() -> void:
 	main_menu_ui.visible = false
 	loading_ui.visible = true
-	_show_coin_popup()
+	_hide_coin_popup()
 	loading_fade_rect.color = Color(0, 0, 0, 1)
 
 	var fade_in_tween: Tween = create_tween()
@@ -1421,7 +1423,7 @@ func _show_game_over() -> void:
 	game_over_label.visible = false
 	final_time_label.visible = false
 	_set_end_time_text("Survived: %s" % _format_time(_get_elapsed_time()))
-	_show_coin_popup()
+	_hide_coin_popup()
 
 func _show_game_won() -> void:
 	if has_won:
@@ -1466,7 +1468,7 @@ func _show_game_won() -> void:
 	_set_end_time_text(_format_time(run_time))
 	color_rect.visible = false
 	color_rect.color = Color(0, 0, 0, 0)
-	_show_coin_popup()
+	_hide_coin_popup()
 	get_tree().paused = true
 
 func _update_difficulty_win_progress(run_time: float) -> void:
@@ -1540,7 +1542,7 @@ func _start_tom_cruise_boss_fight() -> void:
 	round_timer_started = false
 	boss_room_origin = _get_tom_cruise_room_origin()
 	timer_label.text = "BOSS FIGHT"
-	damage_grace_active = true
+	_hold_damage_grace()
 	_stop_enemy_proximity_audio()
 	if background_music != null and background_music.playing:
 		background_music.stop()
@@ -1549,14 +1551,14 @@ func _start_tom_cruise_boss_fight() -> void:
 	if not is_alive or has_won:
 		return
 	_apply_boss_fight_lighting(boss_room_origin)
-	_apply_player_nightmare_flashlight(true)
+	_apply_player_nightmare_flashlight(false)
 	_give_player_boss_p90()
 	_teleport_player_to_boss_room(player, boss_room_origin)
 	_spawn_tom_cruise_boss(world_environment, boss_room_origin, player)
 	if boss_ui:
 		boss_ui.visible = true
 	boss_intro_active = false
-	_start_damage_grace()
+	_start_damage_grace(BOSS_TELEPORT_DAMAGE_GRACE_SECONDS)
 
 func _play_boss_music() -> void:
 	if boss_music == null:
@@ -1626,6 +1628,8 @@ func _spawn_tom_cruise_boss(world_environment: Node, room_origin: Vector3, playe
 	boss_node.set("player_path", NodePath("../CharacterBody3D"))
 	world_environment.add_child(boss_node)
 	boss_node.global_position = room_origin + TOM_CRUISE_BOSS_SPAWN_OFFSET
+	boss_node.set("minion_spawn_origin", boss_node.global_position)
+	boss_node.set("minion_spawn_origin_set", true)
 	boss_node.look_at(player.global_position, Vector3.UP)
 	boss_node.scale = Vector3(3.4, 3.4, 3.4)
 
@@ -1662,7 +1666,7 @@ func _on_tom_cruise_boss_defeated() -> void:
 		_show_game_won()
 
 func _apply_boss_fight_lighting(room_origin: Vector3) -> void:
-	_apply_nightmare_lighting()
+	_apply_boss_dark_environment()
 	_clear_boss_fight_lighting()
 	var light_parent: Node = get_node_or_null("WorldEnvironment")
 	if light_parent == null:
@@ -1676,6 +1680,19 @@ func _apply_boss_fight_lighting(room_origin: Vector3) -> void:
 	boss_room_light.omni_range = TOM_CRUISE_BOSS_LIGHT_RANGE
 	light_parent.add_child(boss_room_light)
 	boss_room_light.global_position = room_origin + TOM_CRUISE_BOSS_LIGHT_OFFSET
+
+func _apply_boss_dark_environment() -> void:
+	_restore_normal_lighting()
+	var world_environment: WorldEnvironment = get_node_or_null("WorldEnvironment") as WorldEnvironment
+	if world_environment == null or world_environment.environment == null:
+		return
+	world_environment.set_meta(NIGHTMARE_ORIGINAL_ENVIRONMENT_META, world_environment.environment.duplicate(true))
+	world_environment.environment = world_environment.environment.duplicate(true)
+	var environment: Environment = world_environment.environment
+	environment.background_energy_multiplier = 0.08
+	environment.ambient_light_color = Color(0.02, 0.025, 0.045)
+	environment.ambient_light_energy = 0.06
+	environment.ambient_light_sky_contribution = 0.0
 
 func _clear_boss_fight_lighting() -> void:
 	if boss_room_light != null and is_instance_valid(boss_room_light):
@@ -1954,21 +1971,25 @@ func _restore_normal_lighting() -> void:
 		lightmap_gi.visible = bool(lightmap_gi.get_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META))
 		lightmap_gi.remove_meta(NIGHTMARE_ORIGINAL_LIGHT_VISIBLE_META)
 
-func _start_damage_grace() -> void:
+func _hold_damage_grace() -> void:
+	damage_grace_token += 1
 	damage_grace_active = true
-	var grace_timer: SceneTreeTimer = get_tree().create_timer(START_DAMAGE_GRACE_SECONDS)
+
+func _start_damage_grace(duration: float = START_DAMAGE_GRACE_SECONDS) -> void:
+	damage_grace_token += 1
+	var current_token: int = damage_grace_token
+	damage_grace_active = true
+	var grace_timer: SceneTreeTimer = get_tree().create_timer(duration)
 	await grace_timer.timeout
-	damage_grace_active = false
+	if current_token == damage_grace_token:
+		damage_grace_active = false
 
 func _show_coin_popup() -> void:
 	if coin_popup_ui == null:
 		print("Coin popup missing.")
 		return
 
-	coin_popup_previous_mouse_mode = Input.get_mouse_mode()
-	coin_popup_ui.visible = true
-	Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
-	print("Coin popup shown.")
+	_hide_coin_popup()
 
 func _hide_coin_popup() -> void:
 	if coin_popup_ui:

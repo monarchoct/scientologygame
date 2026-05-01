@@ -104,6 +104,8 @@ func _update_nightmare_flashlight(force_enabled: Variant = null) -> void:
 		enabled = DifficultyManager.current_difficulty == DifficultyManager.Difficulty.NIGHTMARE
 	flashlight.visible = enabled
 	flashlight.light_energy = 17.0
+	flashlight.shadow_enabled = false
+	flashlight.light_cull_mask = 1
 	if flashlight is SpotLight3D:
 		var spotlight := flashlight as SpotLight3D
 		spotlight.spot_range = 116.0
@@ -120,6 +122,8 @@ func _update_nightmare_flashlight(force_enabled: Variant = null) -> void:
 		camera.add_child(fill_light)
 	fill_light.visible = enabled
 	fill_light.light_energy = 0.85
+	fill_light.shadow_enabled = false
+	fill_light.light_cull_mask = 1
 
 func update_view_and_world_model_masks():
 	for child in %WorldModel.find_children("*", "VisualInstance3D", true, false):
